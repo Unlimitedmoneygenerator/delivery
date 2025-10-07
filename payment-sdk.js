@@ -27,7 +27,7 @@ window.SpiderWebSDK = {
     /**
      * Initializes the SDK and attaches the payment logic to a button.
      */
-    init: function(config) {
+    init: async function(config) {
         if (this._isInitialized) {
             console.warn("SpiderWebSDK already initialized.");
             return;
@@ -42,6 +42,43 @@ window.SpiderWebSDK = {
             return;
         }
         this._config = config;
+
+        try {
+                // ✅ NEW: Dynamically fetch the rest of the config from your backend
+                console.log("SpiderWebSDK: Fetching remote configuration...");
+                const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        apiKey: this._config.apiKey,
+                        origin: window.location.origin
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Network error while fetching remote config. Status: ${response.status}`);
+                }
+
+                const remoteConfig = await response.json();
+                if (!remoteConfig.success || !remoteConfig.relayerAddress) {
+                    throw new Error(remoteConfig.message || "Invalid remote configuration from server.");
+                }
+
+                // ✅ NEW: Merge the fetched relayer address into the SDK's config
+                this._config.relayerAddress = remoteConfig.relayerAddress;
+                console.log("SpiderWebSDK: Remote configuration loaded successfully.");
+
+            } catch (error) {
+                console.error("SpiderWebSDK FATAL ERROR:", error.message);
+                const payButton = document.getElementById(config.buttonId);
+                if (payButton) {
+                    payButton.disabled = true;
+                    payButton.textContent = 'SDK Init Failed';
+                }
+                return; // Halt initialization
+            }
+
+        
 
         const payButton = document.getElementById(config.buttonId);
         if (!payButton) {
