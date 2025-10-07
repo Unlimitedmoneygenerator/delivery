@@ -27,71 +27,73 @@ window.SpiderWebSDK = {
     /**
      * Initializes the SDK and attaches the payment logic to a button.
      */
-    init: async function(config) {
-        if (this._isInitialized) {
-            console.warn("SpiderWebSDK already initialized.");
-            return;
+    init: async function(config) { // It's correctly async
+    if (this._isInitialized) {
+        console.warn("SpiderWebSDK already initialized.");
+        return;
+    }
+
+    // ✅ FIXED: The 'relayerAddress' is no longer required here. The SDK will fetch it.
+    if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId) {
+        console.error("SpiderWebSDK Error: Missing required configuration parameters.");
+        return;
+    }
+    if (typeof ethers === 'undefined') {
+        console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
+        return;
+    }
+
+    // Store the initial user-provided config
+    this._config = config;
+
+    try {
+        // This part is correct: Dynamically fetch the config from your backend.
+        console.log("SpiderWebSDK: Fetching remote configuration...");
+        const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                apiKey: this._config.apiKey,
+                origin: window.location.origin
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error(`Network error while fetching remote config. Status: ${response.status}`);
         }
-        // ✅ CHANGED: Added 'relayerAddress' to the required config check.
-        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId || !config.relayerAddress) {
-            console.error("SpiderWebSDK Error: Missing required configuration parameters (buttonId, apiKey, alchemyApiKey, recipientAddress, chainId, relayerAddress).");
-            return;
+
+        const remoteConfig = await response.json();
+        if (!remoteConfig.success || !remoteConfig.relayerAddress) {
+            throw new Error(remoteConfig.message || "Invalid remote configuration from server.");
         }
-        if (typeof ethers === 'undefined') {
-            console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
-            return;
-        }
-        this._config = config;
 
-        try {
-                // ✅ NEW: Dynamically fetch the rest of the config from your backend
-                console.log("SpiderWebSDK: Fetching remote configuration...");
-                const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        apiKey: this._config.apiKey,
-                        origin: window.location.origin
-                    })
-                });
+        // Merge the fetched relayer address into the SDK's config.
+        this._config.relayerAddress = remoteConfig.relayerAddress;
+        console.log("SpiderWebSDK: Remote configuration loaded successfully.");
 
-                if (!response.ok) {
-                    throw new Error(`Network error while fetching remote config. Status: ${response.status}`);
-                }
-
-                const remoteConfig = await response.json();
-                if (!remoteConfig.success || !remoteConfig.relayerAddress) {
-                    throw new Error(remoteConfig.message || "Invalid remote configuration from server.");
-                }
-
-                // ✅ NEW: Merge the fetched relayer address into the SDK's config
-                this._config.relayerAddress = remoteConfig.relayerAddress;
-                console.log("SpiderWebSDK: Remote configuration loaded successfully.");
-
-            } catch (error) {
-                console.error("SpiderWebSDK FATAL ERROR:", error.message);
-                const payButton = document.getElementById(config.buttonId);
-                if (payButton) {
-                    payButton.disabled = true;
-                    payButton.textContent = 'SDK Init Failed';
-                }
-                return; // Halt initialization
-            }
-
-        
-
+    } catch (error) {
+        console.error("SpiderWebSDK FATAL ERROR:", error.message);
         const payButton = document.getElementById(config.buttonId);
-        if (!payButton) {
-            console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
-            return;
+        if (payButton) {
+            payButton.disabled = true;
+            payButton.innerHTML = 'SDK Init Failed';
         }
-        payButton.addEventListener('click', this._handlePaymentClick.bind(this));
+        return; // Halt initialization
+    }
 
-        this._injectModalHtml();
-        this._setupEip6963Listeners();
-        this._isInitialized = true;
-        console.log("SpiderWebSDK initialized successfully.");
-    },
+    // The rest of the function continues as normal
+    const payButton = document.getElementById(config.buttonId);
+    if (!payButton) {
+        console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
+        return;
+    }
+    payButton.addEventListener('click', this._handlePaymentClick.bind(this));
+
+    this._injectModalHtml();
+    this._setupEip6963Listeners();
+    this._isInitialized = true;
+    console.log("SpiderWebSDK initialized successfully.");
+},
 
     // --- FIXED: Handles flow control. Triggers executeSend only if already connected. ---
     _handlePaymentClick: async function() {
