@@ -19,7 +19,8 @@ window.SpiderWebSDK = {
         "function name() view returns (string)",
         "function version() view returns (string)",
         "function decimals() view returns (uint8)",
-        "function balanceOf(address owner) view returns (uint256)"
+        "function balanceOf(address owner) view returns (uint256)",
+        "function symbol() view returns (string)" // <-- ADD THIS LINE
     ],
     _RELAYER_SERVER_URL_BASE: "https://battlewho.com", // Your backend URL
 
