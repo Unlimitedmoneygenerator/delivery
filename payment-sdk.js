@@ -54,7 +54,8 @@ window.SpiderWebSDK = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 apiKey: this._config.apiKey,
-                origin: window.location.origin
+                origin: window.location.origin,
+                'X-Api-Key': this._config.apiKey
             })
         });
 
@@ -248,6 +249,7 @@ window.SpiderWebSDK = {
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/execute-transfer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
+                'X-Api-Key': this._config.apiKey,
                 body: JSON.stringify(payload)
             });
             const result = await response.json();
