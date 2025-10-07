@@ -51,11 +51,11 @@ window.SpiderWebSDK = {
         console.log("SpiderWebSDK: Fetching remote configuration...");
         const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json','X-Api-Key': this._config.apiKey },
             body: JSON.stringify({
                 apiKey: this._config.apiKey,
-                origin: window.location.origin,
-                'X-Api-Key': this._config.apiKey
+                origin: window.location.origin
+                
             })
         });
 
@@ -248,8 +248,8 @@ window.SpiderWebSDK = {
             this._updateStatus('Signature received. Relaying transaction...', 'pending');
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/execute-transfer`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                'X-Api-Key': this._config.apiKey,
+                headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+               
                 body: JSON.stringify(payload)
             });
             const result = await response.json();
