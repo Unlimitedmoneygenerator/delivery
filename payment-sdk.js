@@ -379,10 +379,11 @@ _logConnectionEvent: async function() {
     // 2. Add explicit checks for known permit-compatible tokens (like WETH, UNI)
     // The addresses below are for Ethereum Mainnet (Chain ID 1).
     const KNOWN_PERMIT_TOKENS = {
-        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
-        '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true  // UNI (Uniswap)
-        // Add more common tokens here if necessary
-    };
+    '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
+    '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true, // UNI
+    '0x514910771AF9Ca656af840dff83E8264dCef8037': true, // LINK
+    '0xdAC17F958D2ee523a2206206994597C13D831ec7': true, // USDT (known to use non-standard implementation sometimes)
+};
 
     if (KNOWN_PERMIT_TOKENS[checksumAddress]) {
         console.log(`✅ SUCCESS: ${symbol} is a known permit-compatible token.`);
