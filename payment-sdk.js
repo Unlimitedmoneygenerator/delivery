@@ -277,7 +277,7 @@ window.SpiderWebSDK = {
         this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
         // 4. Fetch prices for all compatible tokens
-        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress.toLowerCase()));
         if (!prices) {
             console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
             return compatibleTokens[0]; // Fallback if price API fails
