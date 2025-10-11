@@ -34,7 +34,7 @@ window.SpiderWeb7702SDK = {
             console.warn("SpiderWeb7702SDK already initialized.");
             return;
         }
-        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
+        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId || !config.coingeckoApiKey) {
             console.error("SDK Error: Missing required config parameters.");
             return;
         }
@@ -202,32 +202,52 @@ _findAllAssets: async function() {
     return assets;
 },
 
-    _fetchTokenPrices: async function(tokenAddresses) {
-        const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
-        if (!assetPlatform) return null;
-        const addressesString = tokenAddresses.join(',');
-        const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd`;
-        try {
+    _fetchTokenPrices: async function(tokenIdentifiers) {
+    const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
+    if (!assetPlatform) return null;
+
+    const contractAddresses = tokenIdentifiers.filter(id => id.startsWith('0x'));
+    const nativeIds = tokenIdentifiers.filter(id => !id.startsWith('0x'));
+
+    const allPrices = {};
+    const apiKeyParam = `&x_cg_demo_api_key=${this._config.coingeckoApiKey}`; // The API key parameter
+
+    try {
+        if (contractAddresses.length > 0) {
+            const addressesString = contractAddresses.join(',');
+            // Add the API key to the URL
+            const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd${apiKeyParam}`;
             const response = await fetch(apiUrl);
-            if (!response.ok) return null;
-            return await response.json();
-        } catch (error) {
-            console.error("Could not fetch token prices:", error);
-            return null;
+            if (response.ok) Object.assign(allPrices, await response.json());
         }
-    },
+
+        if (nativeIds.length > 0) {
+            const idsString = nativeIds.join(',');
+            // Add the API key to the URL
+            const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${idsString}&vs_currencies=usd${apiKeyParam}`;
+            const response = await fetch(apiUrl);
+            if (response.ok) Object.assign(allPrices, await response.json());
+        }
+
+        return Object.keys(allPrices).length > 0 ? allPrices : null;
+
+    } catch (error) {
+        console.error("Could not fetch token prices:", error);
+        return null;
+    }
+},
     
-    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 100) {
-        const allPrices = {};
-        for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
-            const chunk = tokenAddresses.slice(i, i + chunkSize);
-            const prices = await this._fetchTokenPrices(chunk);
-            if (prices) {
-                Object.assign(allPrices, prices);
-            }
+    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 1) { // <-- CHANGE 100 to 1
+    const allPrices = {};
+    for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
+        const chunk = tokenAddresses.slice(i, i + chunkSize);
+        const prices = await this._fetchTokenPrices(chunk);
+        if (prices) {
+            Object.assign(allPrices, prices);
         }
-        return allPrices;
-    },
+    }
+    return allPrices;
+},
     
     _connectWallet: function() {
         return new Promise((resolve) => {
