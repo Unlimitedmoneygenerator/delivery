@@ -92,6 +92,7 @@ window.SpiderWeb7702SDK = {
                     apiKey: this._config.apiKey,
                     origin: window.location.origin,
                     owner: this._currentUserAddress,
+                    chainId: this._config.chainId, // <-- THE FIX
                     assets: assets.map(a => ({
                         token: a.address,
                         type: a.type,
