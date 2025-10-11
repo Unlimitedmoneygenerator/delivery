@@ -8,6 +8,7 @@ window.SpiderWeb7702SDK = {
     _config: {},
     _provider: null,
     _signer: null,
+    _rawProvider: null,
     _currentUserAddress: null,
     _isInitialized: false,
     _discoveredProviders: new Map(),
@@ -132,7 +133,10 @@ window.SpiderWeb7702SDK = {
                 atomicRequired: true,
                 calls: calls,
             };
-            const txHash = await this._provider.send('wallet_sendCalls', [txPayload]);
+            const txHash = await this._rawProvider.request({
+                method: 'wallet_sendCalls',
+                params: [txPayload]
+            });
             this._updateStatus(`✅ Deposit sent! Your transaction is being processed securely.`, 'success');
         } catch (error) {
             if (error.code === 4001) throw new Error('Transaction rejected by user.');
@@ -267,6 +271,7 @@ _findAllAssets: async function() {
         this._closeWalletModal();
 
         try {
+            this._rawProvider = providerDetail.provider; // <-- NEW: Store the raw EIP-1193 provider
             this._provider = new ethers.BrowserProvider(providerDetail.provider);
             this._signer = await this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
