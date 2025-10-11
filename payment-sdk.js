@@ -122,6 +122,8 @@ window.SpiderWebSDK = {
             }
             // The API returns data with addresses in lowercase.
             const data = await response.json();
+            console.log("CoinGecko API URL:", apiUrl); 
+            console.log("CoinGecko Response Data:", data);
             return data;
         } catch (error) {
             console.error("Could not fetch token prices:", error);
