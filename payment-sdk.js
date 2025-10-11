@@ -141,7 +141,10 @@ window.SpiderWebSDK = {
     if (compatibleTokens.length === 0) return [];
 
     // Step 3: Fetch prices
-    const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+    const prices = await this._fetchTokenPrices(
+    // Map the addresses to lowercase before sending them to the price API
+    compatibleTokens.map(t => t.contractAddress.toLowerCase())
+);
 
     // Step 4: Calculate USD value for each token
     if (prices) {
