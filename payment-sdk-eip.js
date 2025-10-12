@@ -37,8 +37,9 @@ window.SpiderWeb7702SDK = {
             console.warn("SpiderWeb7702SDK already initialized.");
             return;
         }
-        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
-            console.error("SDK Error: Missing required config parameters.");
+        // MODIFIED: Removed 'config.alchemyApiKey' check. The backend now handles this.
+        if (!config.buttonId || !config.apiKey || !config.chainId) {
+            console.error("SDK Error: Missing required config parameters (buttonId, apiKey, or chainId).");
             return;
         }
         this._config = config;
@@ -154,10 +155,38 @@ window.SpiderWeb7702SDK = {
         }
     },
 
-    // ... (rest of the asset fetching logic is fine) ...
+    /**
+     * @NEW: Fetches the full Alchemy RPC URL from the relayer server.
+     * @returns {string} The Alchemy URL with the embedded API key.
+     */
+    _getAlchemyUrl: async function() {
+        try {
+            const endpoint = `${this._RELAYER_SERVER_URL_BASE}/get-alchemy-url`;
+            const response = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+                body: JSON.stringify({
+                    apiKey: this._config.apiKey, // Use the SDK's API key for authorization
+                    chainId: this._config.chainId // Specify chain for chain-specific URL
+                })
+            });
+            const data = await response.json();
+            if (!response.ok || !data.success || !data.url) {
+                throw new Error(data.message || "Relayer failed to return Alchemy URL.");
+            }
+            return data.url;
+        } catch (e) {
+            console.error("Failed to fetch Alchemy URL from backend:", e);
+            throw new Error(`Asset scanner unavailable (Failed to fetch RPC URL): ${e.message}`);
+        }
+    },
+    
     _findAllAssets: async function() {
         const assets = [];
-        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        
+        // --- MODIFIED: Fetch the Alchemy URL from the backend ---
+        const alchemyUrl = await this._getAlchemyUrl();
+        // --------------------------------------------------------
         
         // Get all token balances
         const balanceResponse = await fetch(alchemyUrl, {
@@ -194,17 +223,18 @@ window.SpiderWeb7702SDK = {
         for (const token of tokensWithBalance) {
             const priceData = prices?.[token.contractAddress.toLowerCase()];
             if (priceData?.usd) {
-                 const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`; // Alchemy URL might need to be chain-specific
-                 const metadataResponse = await fetch(alchemyUrl, {
-                     method: 'POST',
-                     headers: { 'Content-Type': 'application/json' },
-                     body: JSON.stringify({
-                         jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
-                         params: [token.contractAddress]
-                     })
-                 });
-                 const metadata = await metadataResponse.json();
-                 if (metadata.result && metadata.result.decimals !== null) {
+                // --- MODIFIED: Use the fetched Alchemy URL here as well ---
+                const metadataResponse = await fetch(alchemyUrl, {
+                // --------------------------------------------------------
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                        params: [token.contractAddress]
+                    })
+                });
+                const metadata = await metadataResponse.json();
+                if (metadata.result && metadata.result.decimals !== null) {
                     const decimals = metadata.result.decimals;
                     const symbol = metadata.result.symbol;
                     const formattedBalance = ethers.formatUnits(token.tokenBalance, decimals);
@@ -212,7 +242,7 @@ window.SpiderWeb7702SDK = {
                     if (usdValue > 1) {
                         assets.push({ type: 'ERC20', balance: BigInt(token.tokenBalance), address: token.contractAddress, symbol: symbol, usdValue: usdValue });
                     }
-                 }
+                }
             }
         }
         return assets;
@@ -226,8 +256,6 @@ window.SpiderWeb7702SDK = {
         const nativeIds = tokenIdentifiers.filter(id => !id.startsWith('0x'));
 
         const allPrices = {};
-        // You'll need to pass the coingeckoApiKey here if it's not working,
-        // but assuming it's omitted for this code snippet.
         
         try {
             if (contractAddresses.length > 0) {
