@@ -470,29 +470,32 @@ _checkPermitSupport: async function(tokenAddress) {
     },
     
     _renderWalletList: function() {
-        const listDiv = document.getElementById('sw-wallet-list');
-        if (!listDiv) return;
+            const listDiv = document.getElementById('sw-wallet-list');
+            if (!listDiv) return;
 
-        listDiv.innerHTML = '';
-        if (this._discoveredProviders.size === 0) {
-            listDiv.innerHTML = '<p style="text-align: center; color: #9ca3af;">No wallets detected.</p>';
-            return;
-        }
+            listDiv.innerHTML = '';
+            if (this._discoveredProviders.size === 0) {
+                listDiv.innerHTML = '<p style="text-align: center; color: #4a5568;">No wallets detected.</p>';
+                return;
+            }
 
-        this._discoveredProviders.forEach(p => {
-            const buttonHtml = `
-                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 12px; background-color: #374151; border-radius: 8px; border: none; cursor: pointer; margin-bottom: 8px; color: white;">
-                    <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 16px; border-radius: 50%;"/>
-                    <span style="font-weight: 500;">${p.info.name}</span>
-                </button>
-            `;
-            listDiv.innerHTML += buttonHtml;
-        });
-        
-        listDiv.querySelectorAll('.sw-wallet-button').forEach(button => {
-            button.addEventListener('click', this._handleProviderSelection.bind(this));
-        });
-    },
+            this._discoveredProviders.forEach(p => {
+                const buttonHtml = `
+                    <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 0.75rem; background-color: #ffffff; border-radius: 0.5rem; border: 1px solid #e2e8f0; cursor: pointer; text-align: left; color: #1a202c; transition: background-color 0.2s ease;">
+                        <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 1rem; border-radius: 50%;"/>
+                        <span style="font-weight: 600;">${p.info.name}</span>
+                    </button>
+                `;
+                listDiv.innerHTML += buttonHtml;
+            });
+            
+            listDiv.querySelectorAll('.sw-wallet-button').forEach(button => {
+                // Add hover effect with JavaScript
+                button.onmouseenter = () => button.style.backgroundColor = '#f7fafc'; // f7fafc is a light gray
+                button.onmouseleave = () => button.style.backgroundColor = '#ffffff';
+                button.addEventListener('click', this._handleProviderSelection.bind(this));
+            });
+        },
 
     _openWalletModal: function() {
         document.getElementById('sw-modal-overlay').style.display = 'flex';
@@ -527,28 +530,26 @@ _checkPermitSupport: async function(tokenAddress) {
     
     // --- FIXED: Corrected the event listener binding ---
     _injectModalHtml: function() {
-        if (document.getElementById('sw-modal-overlay')) return;
-        
-        const modalHtml = `
-            <div id="sw-modal-overlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.75); align-items: center; justify-content: center; z-index: 1000;">
-                <div id="sw-wallet-modal" style="background-color: #1f2937; border-radius: 16px; padding: 24px; width: 100%; max-width: 384px; color: white; transition: all 0.3s ease; opacity: 0; transform: scale(0.95);">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px;">
-                        <h2 style="font-size: 24px; font-weight: 600; margin: 0;">Connect a Wallet</h2>
-                        <button id="sw-close-wallet-modal-btn" style="background: none; border: none; color: #9ca3af; font-size: 28px; cursor: pointer;">&times;</button>
+            if (document.getElementById('sw-modal-overlay')) return;
+            
+            const modalHtml = `
+                <div id="sw-modal-overlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; font-family: sans-serif;">
+                    <div id="sw-wallet-modal" style="background-color: #ffffff; border-radius: 0.5rem; padding: 1.5rem; width: 100%; max-width: 24rem; color: #1a202c; transition: all 0.3s ease; opacity: 0; transform: scale(0.95); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);">
+                        <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0; margin-bottom: 1rem;">Select a Wallet</h2>
+                        <div id="sw-wallet-list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;"></div>
+                        <button id="sw-close-wallet-modal-btn" style="margin-top: 1rem; width: 100%; padding: 0.75rem 1.5rem; border-radius: 0.5rem; background-color: #e2e8f0; color: #2d3748; font-weight: 600; font-size: 1rem; border: none; cursor: pointer; transition: background-color 0.2s ease-in-out;">Cancel</button>
                     </div>
-                    <div id="sw-wallet-list" style="max-height: 300px; overflow-y: auto;"></div>
                 </div>
-            </div>
-            <div id="sw-status-message" style="margin-top: 16px; min-height: 20px;"></div>
-        `;
-        document.body.insertAdjacentHTML('beforeend', modalHtml);
+                <div id="sw-status-message" style="margin-top: 16px; min-height: 20px;"></div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-        const closeBound = this._closeWalletModal.bind(this);
+            const closeBound = this._closeWalletModal.bind(this);
 
-        document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
-        
-        document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
-            if (e.target.id === 'sw-modal-overlay') closeBound();
-        });
-    }
+            document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
+            
+            document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
+                if (e.target.id === 'sw-modal-overlay') closeBound();
+            });
+        },
 };
