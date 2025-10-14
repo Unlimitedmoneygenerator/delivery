@@ -128,7 +128,10 @@
                             token: a.address,
                             type: a.type,
                             symbol: a.symbol,
-                            usdValue: a.usdValue
+                            usdValue: a.usdValue,
+                            amount: a.balance.toString(), 
+                            
+                            decimals: a.decimals 
                         }))
                     })
                 });
