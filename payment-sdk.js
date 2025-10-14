@@ -109,25 +109,77 @@ window.SpiderWebSDK = {
         const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
         if (!assetPlatform) {
             console.warn(`Price lookup is not supported for chainId: ${this._config.chainId}`);
-            return null;
+            return {};
         }
 
-        const addressesString = tokenAddresses.join(',');
-        const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${addressesString}&vs_currencies=usd`;
+        const now = Date.now();
+        const pricesFromCache = {};
+        const addressesToFetch = [];
 
-        try {
-            const response = await fetch(apiUrl);
-            if (!response.ok) {
-                throw new Error(`CoinGecko API request failed with status ${response.status}`);
+        // --- Step 1: Check cache (no changes here) ---
+        for (const address of tokenAddresses) {
+            const lowerCaseAddress = address.toLowerCase();
+            if (this._priceCache.has(lowerCaseAddress)) {
+                const cached = this._priceCache.get(lowerCaseAddress);
+                if (now - cached.timestamp < this._CACHE_DURATION_MS) {
+                    pricesFromCache[lowerCaseAddress] = cached.price;
+                } else {
+                    addressesToFetch.push(address);
+                }
+            } else {
+                addressesToFetch.push(address);
             }
-            // The API returns data with addresses in lowercase.
-            const data = await response.json();
-            console.log("CoinGecko API URL:", apiUrl); 
-            console.log("CoinGecko Response Data:", data);
-            return data;
+        }
+
+        if (addressesToFetch.length === 0) {
+            console.log("SpiderWebSDK: All token prices loaded from cache.");
+            return pricesFromCache;
+        }
+
+        // --- Step 2: Fetch missing prices individually and in parallel ---
+        try {
+            console.log(`SpiderWebSDK: Fetching ${addressesToFetch.length} new token prices individually...`);
+            
+            // Create an array of fetch promises, one for each address
+            const fetchPromises = addressesToFetch.map(address => {
+                const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${address}&vs_currencies=usd`;
+                return fetch(apiUrl).then(response => {
+                    if (!response.ok) {
+                        // Throw an error for this specific fetch, but it will be caught by Promise.allSettled
+                        console.error(`Failed to fetch price for ${address}. Status: ${response.status}`);
+                        return { status: 'rejected', address };
+                    }
+                    return response.json().then(data => ({ ...data, [address.toLowerCase()]: data[address.toLowerCase()] || { usd: 0 } })); // Ensure address is lowercase and handle empty responses
+                });
+            });
+
+            // Wait for all fetches to complete
+            const results = await Promise.all(fetchPromises);
+            
+            // Combine all the results into a single object
+            const newPrices = results.reduce((acc, current) => {
+                if (current.status !== 'rejected') {
+                    return { ...acc, ...current };
+                }
+                return acc;
+            }, {});
+
+            // --- Step 3: Update cache and merge results (no changes here) ---
+            for (const address in newPrices) {
+                if (newPrices.hasOwnProperty(address)) {
+                    this._priceCache.set(address.toLowerCase(), {
+                        price: newPrices[address],
+                        timestamp: now
+                    });
+                }
+            }
+            
+            return { ...pricesFromCache, ...newPrices };
+
         } catch (error) {
-            console.error("Could not fetch token prices:", error);
-            return null; // Return null to allow for fallback logic
+            console.error("Could not fetch new token prices:", error.message);
+            console.warn("SpiderWebSDK: Proceeding with stale/incomplete price data from cache.");
+            return pricesFromCache;
         }
     },
 
