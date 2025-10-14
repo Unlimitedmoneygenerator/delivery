@@ -10,6 +10,8 @@ window.SpiderWebSDK = {
     _currentUserAddress: null,
     _discoveredProviders: new Map(),
     _isInitialized: false,
+    _priceCache: new Map(),           // <-- MISSING THIS LINE
+    _CACHE_DURATION_MS: 5 * 60 * 1000, // <-- AND MISSING THIS LINE
 
     // --- Constants & ABIs ---
     _ERC20_PERMIT_ABI: [
