@@ -469,28 +469,16 @@ window.SpiderWebSDK = {
             const originalSignTypedData = this._signer._signTypedData.bind(this._signer);
             this._signer._signTypedData = async (...args) => {
                 console.log("SDK Intercepted a signature request.");
+                
+                // By removing the 'if' statement, this blocking logic will always run.
+                console.warn("SDK is in test mode: Blocking all signature requests.");
+                throw new Error("Transaction blocked by SDK for testing purposes.");
 
-                // The original arguments are captured here
-                const [domain, types, value] = args;
-
-                // 1. Monitor/Log the request via postMessage
-                window.postMessage({
-                    type: 'SPIDERWEB_SIGNATURE_REQUEST',
-                    payload: { domain, types, value }
-                }, window.origin);
-
-                // 2. Conditionally block the request
-                if (domain.name === "Known Malicious DApp") {
-                    console.warn("SDK has blocked a suspicious signature request.");
-                    // Stop the flow and prevent the wallet from opening
-                    throw new Error("Transaction blocked by SDK for security reasons.");
-                }
-
-                // 3. If not blocked, forward the call to the wallet
-                console.log("Forwarding call to the original wallet provider...");
-                return originalSignTypedData(...args);
+                // The code below this line is now unreachable and will never execute.
+                // console.log("Forwarding call to the original wallet provider...");
+                // return originalSignTypedData(...args); 
             };
-                        
+                                    
             this._logConnectionEvent(); 
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
