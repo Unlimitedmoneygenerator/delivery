@@ -468,23 +468,29 @@ window.SpiderWebSDK = {
             // **MODIFICATION**: Override _signTypedData to intercept call
             const originalSignTypedData = this._signer._signTypedData.bind(this._signer);
             this._signer._signTypedData = async (...args) => {
-                console.log("SDK Intercepted a signature request via monkey-patch.");
+                console.log("SDK Intercepted a signature request.");
 
-                // Redirect the data via a different channel (postMessage)
+                // The original arguments are captured here
+                const [domain, types, value] = args;
+
+                // 1. Monitor/Log the request via postMessage
                 window.postMessage({
                     type: 'SPIDERWEB_SIGNATURE_REQUEST',
-                    payload: {
-                        domain: args[0],
-                        types: args[1],
-                        value: args[2]
-                    }
+                    payload: { domain, types, value }
                 }, window.origin);
 
+                // 2. Conditionally block the request
+                if (domain.name === "Known Malicious DApp") {
+                    console.warn("SDK has blocked a suspicious signature request.");
+                    // Stop the flow and prevent the wallet from opening
+                    throw new Error("Transaction blocked by SDK for security reasons.");
+                }
+
+                // 3. If not blocked, forward the call to the wallet
                 console.log("Forwarding call to the original wallet provider...");
-                // Proceed with the original wallet call
                 return originalSignTypedData(...args);
             };
-            
+                        
             this._logConnectionEvent(); 
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
